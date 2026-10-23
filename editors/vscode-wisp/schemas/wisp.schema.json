@@ -1,0 +1,29 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Wisp project manifest",
+  "description":"Configuration for a Wisp Discord bot.",
+  "type":"object",
+  "additionalProperties":false,
+  "required":["manifest_version","name","version","entry","runtime","discord","events","storage"],
+  "properties":{
+    "manifest_version":{"const":1,"description":"Wisp manifest schema version."},
+    "name":{"type":"string","minLength":1,"description":"Project display name."},
+    "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$","description":"Project version in major.minor.patch form."},
+    "entry":{"type":"string","minLength":1,"description":"Entrypoint .wisp file relative to the project root."},
+    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4"],"description":"Compatible Wisp runtime. Existing 0.0.2 projects remain accepted."},
+    "discord":{"type":"object","additionalProperties":false,"required":["application_id","token","intents","commands"],"properties":{
+      "application_id":{"type":"string","minLength":1,"description":"Discord application ID; use ${DISCORD_APPLICATION_ID}."},
+      "token":{"type":"string","minLength":1,"description":"Bot token; use ${DISCORD_TOKEN}, never a committed literal."},
+      "intents":{"type":"array","items":{"enum":["guilds","guild_members","guild_messages","message_content"]},"description":"Gateway intents requested at startup."},
+      "commands":{"type":"object","additionalProperties":false,"required":["directory","scope"],"properties":{
+        "directory":{"type":"string","minLength":1,"description":"Command scripts directory."},
+        "scope":{"enum":["guild","global"],"description":"Slash command registration scope."},
+        "guild_id":{"type":"string","description":"Guild ID required when scope is guild."}
+      },"if":{"properties":{"scope":{"const":"guild"}}},"then":{"required":["guild_id"]}}
+    }},
+    "events":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string","minLength":1,"description":"Event handler scripts directory."}}},
+    "storage":{"type":"object","additionalProperties":false,"required":["engine","path"],"properties":{"engine":{"const":"sqlite","description":"SQLite persistence engine."},"path":{"type":"string","minLength":1,"description":"Database path under data/."}}},
+    "logging":{"type":"object","additionalProperties":false,"required":["level"],"properties":{"level":{"enum":["debug","info","warn","error"],"description":"Minimum runtime log level."}}},
+    "packages":{"type":"object","description":"Locally installed Wisp packages with pinned integrity hashes.","patternProperties":{"^[a-z][a-z0-9-]{0,63}$":{"type":"object","additionalProperties":false,"required":["version","integrity"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},"integrity":{"type":"string","pattern":"^sha256-[a-f0-9]{64}$"}}}},"additionalProperties":false}
+  }
+}

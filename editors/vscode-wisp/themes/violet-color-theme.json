@@ -1,0 +1,16 @@
+{
+  "name":"Wisp Violet",
+  "type":"dark",
+  "colors":{"editor.background":"#14101F","editor.foreground":"#E8DBFF","editorCursor.foreground":"#C084FC","editorLineNumber.foreground":"#79668F","editor.selectionBackground":"#52386C","editor.inactiveSelectionBackground":"#372848"},
+  "tokenColors":[
+    {"scope":["source.wisp keyword","source.wisp storage"],"settings":{"foreground":"#C084FC"}},
+    {"scope":"source.wisp string","settings":{"foreground":"#E9B8FF"}},
+    {"scope":"source.wisp support.function","settings":{"foreground":"#DDA5FF"}},
+    {"scope":"source.wisp support.type","settings":{"foreground":"#A78BFA"}},
+    {"scope":"source.wisp support.class","settings":{"foreground":"#B794F6"}},
+    {"scope":"source.wisp comment","settings":{"foreground":"#79668F"}},
+    {"scope":["source.wisp punctuation","source.wisp keyword.operator"],"settings":{"foreground":"#9583AE"}},
+    {"scope":"source.wisp constant.numeric","settings":{"foreground":"#D8A4FF"}},
+    {"scope":"source.wisp entity.name","settings":{"foreground":"#DDA5FF"}}
+  ]
+}

@@ -1,0 +1,9 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {ResponseState,buildEmbed} from '../discord/responses.js';
+import type {Value} from '../runtime/interpreter.js';
+function mock(){const calls:string[]=[];const port={reply:async()=>{calls.push('reply');},editReply:async()=>{calls.push('edit');},followUp:async()=>{calls.push('follow');},deferReply:async()=>{calls.push('defer');}} as unknown as ConstructorParameters<typeof ResponseState>[0];return {calls,port};}
+test('response state supports defer, edit, follow-up and rejects double reply',async()=>{const {calls,port}=mock();const r=new ResponseState(port,60000);await r.defer();await r.send({content:'done'});await r.followUp({content:'more',ephemeral:true});await assert.rejects(()=>r.send({content:'again'}),/already replied/);r.close();assert.deepEqual(calls,['defer','edit','follow']);});
+test('response state rejects follow-up before initial response',async()=>{const {port}=mock();const r=new ResponseState(port,60000);await assert.rejects(()=>r.followUp({content:'early'}),/initial response/);r.close();});
+test('rich embed validation enforces Discord limits',()=>{const embed=buildEmbed({title:'Title',description:'Body',color:'#8B5CF6',fields:[{name:'A',value:'B'}] as Value,thumbnail:'https://example.com/x.png',footer:'Footer',timestamp:'2024-01-01T00:00:00Z'});assert.equal(embed.data.title,'Title');assert.equal(embed.data.fields?.length,1);assert.throws(()=>buildEmbed({description:'x'.repeat(4097)}),/4096/);assert.throws(()=>buildEmbed({image:'file:///secret'}),/HTTP/);});
+test('slow interaction auto-defers once before edit',async()=>{const {calls,port}=mock();const r=new ResponseState(port,5);await new Promise(resolve=>setTimeout(resolve,20));await r.send({content:'done'});r.close();assert.deepEqual(calls,['defer','edit']);});

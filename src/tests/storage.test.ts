@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {Storage} from '../storage/sqlite.js';
+import {host,type Value} from '../runtime/interpreter.js';
+test('SQLite values persist across instances and roster refresh is atomic',()=>{const dir=mkdtempSync(join(tmpdir(),'wisp-db-')),path=join(dir,'data','bot.db');try{const a=new Storage(path);a.set('test','key',{answer:42});a.saveRoster('g',[{id:'1',joinedAt:'2024-01-01T00:00:00Z'}]);a.close();const b=new Storage(path);assert.deepEqual(b.get('test','key'),{answer:42});b.delete('test','key');assert.equal(b.get('test','key'),null);b.close();}finally{rmSync(dir,{recursive:true,force:true});}});
+test('counter increment is atomic and survives reopen',()=>{const dir=mkdtempSync(join(tmpdir(),'wisp-count-')),path=join(dir,'data','bot.db');try{const a=new Storage(path);assert.equal(a.has('s','n'),false);assert.equal(a.increment('s','n'),1);assert.equal(a.increment('s','n',4),5);a.close();const b=new Storage(path);assert.equal(b.has('s','n'),true);assert.equal(b.get('s','n'),5);assert.throws(()=>b.increment('s','n',Infinity),/finite/);b.close();}finally{rmSync(dir,{recursive:true,force:true});}});
+test('storage rejects host functions and cyclic objects',()=>{const dir=mkdtempSync(join(tmpdir(),'wisp-json-')),db=new Storage(join(dir,'data','bot.db'));try{assert.throws(()=>db.set('s','fn',host(()=>null)),/JSON-compatible/);const cycle:unknown[]=[];cycle.push(cycle);assert.throws(()=>db.set('s','cycle',cycle as Value),/JSON-compatible/);}finally{db.close();rmSync(dir,{recursive:true,force:true});}});

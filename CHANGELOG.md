@@ -1,0 +1,24 @@
+# Changelog
+
+## 0.0.3 - 2026-10-23
+
+- Added namespaced local Wisp modules with explicit exports, circular-import detection, and root path protection.
+- Added local package add/list/remove with version and SHA-256 integrity verification.
+- Added declarative buttons, select menus, modals, persistent component state, owner and guild checks, and expiration.
+- Added bounded delayed and recurring tasks, cancellation, and hot-reload cleanup.
+- Added source-aware runtime call frames, per-command timeout metadata, verbose validation, and debug timing logs.
+- Added a parser-backed language server, manifest schema, optional Violet theme, snippets, and icon theme to the VS Code extension.
+- Built local poll and utility examples; kept the join-history bot and v0.0.2 manifest compatibility.
+
+
+## 0.0.2 - 2026-10-23
+
+- Added `while`, user-defined functions, `return`, invocation-global assignment, `len`, expanded host APIs, and null fallback with `or`.
+- Added role/channel options, named command permissions, richer embed validation, explicit defer and follow-up actions, and message events.
+- Added SQLite `has` and atomic `increment`, ranking page/filter APIs, concurrent fetch coalescing, and complete-scan invalidation.
+- Expanded `doctor`, added `version` and a lint command, improved runtime diagnostics, tests, and documentation.
+- Updated the join-history example with pages, bot filtering, join timestamps, and historical limitations.
+
+### Breaking migration
+
+The old `0.1.0` label was replaced with `0.0.2`. Existing manifests must change `version` to `0.0.2` and `runtime` to `>=0.0.2 <0.0.3`. Command syntax and SQLite schema 1 remain compatible. `or` now accepts null fallback in addition to boolean OR; use `??` for a strictly null-only fallback.

@@ -1,0 +1,101 @@
+{
+  "name": "wisp-language",
+  "displayName": "Wisp Language",
+  "description": "Syntax highlighting and language intelligence for Wisp .wisp files",
+  "version": "0.0.3",
+  "publisher": "wisp-local",
+  "private": true,
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:wisp"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node --test test/*.test.cjs"
+  },
+  "files": [
+    "language-configuration.json",
+    "syntaxes",
+    "dist",
+    "schemas",
+    "themes",
+    "snippets",
+    "icons",
+    "README.md"
+  ],
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "configurationDefaults": {
+      "[wisp]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4,
+        "editor.detectIndentation": false
+      }
+    },
+    "languages": [
+      {
+        "id": "wisp",
+        "aliases": [
+          "Wisp",
+          "wisp"
+        ],
+        "extensions": [
+          ".wisp"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wisp",
+        "scopeName": "source.wisp",
+        "path": "./syntaxes/wisp.tmLanguage.json"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "wisp.json"
+        ],
+        "url": "./schemas/wisp.schema.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Wisp Violet",
+        "uiTheme": "vs-dark",
+        "path": "./themes/violet-color-theme.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "wisp-icons",
+        "label": "Wisp Icons",
+        "path": "./icons/icon-theme.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "wisp",
+        "path": "./snippets/wisp.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.140.0",
+    "ajv": "^8.20.0",
+    "esbuild": "^0.28.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0",
+    "vscode-languageserver": "^11.0.0",
+    "vscode-languageserver-textdocument": "^1.0.16"
+  }
+}
