@@ -1,6 +1,14 @@
-# Wisp v0.0.3
+<img src="assets/wisp.svg" alt="Wisp flame logo" width="96" align="right">
 
-Wisp is a parsed, interpreted language for Discord bots. A `.wisp` file defines each slash command or event, while `wisp.json` controls project configuration. The TypeScript runtime uses `discord.js` for gateway and REST operations and Node's built-in SQLite module for local persistence.
+# Wisp
+
+Wisp is a scripting language for Discord bots. Write slash commands and events in `.wisp` files, keep project settings in `wisp.json`, and run them with the Wisp CLI.
+
+- Define commands, options, buttons, menus, modals, and event handlers in readable scripts.
+- Store bot data locally with SQLite and reload scripts while developing.
+- Get syntax highlighting, diagnostics, and completion from the VS Code extension.
+
+Current version: **0.0.3**. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
 
 ## Install and build
 
