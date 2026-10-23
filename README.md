@@ -1,14 +1,30 @@
-<img src="assets/wisp.svg" alt="Wisp flame logo" width="96" align="right">
+<div align="center">
+
+<img src="assets/wisp.svg" width="96" alt="Wisp logo" />
 
 # Wisp
 
-Wisp is a scripting language for Discord bots. Write slash commands and events in `.wisp` files, keep project settings in `wisp.json`, and run them with the Wisp CLI.
+**Discord bots, written in Wisp.**
+
+Write slash commands and event handlers in `.wisp` files, then run them with the Wisp CLI.
+
+[![Node.js 24.17+](https://img.shields.io/badge/Node.js-24.17%2B-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![VS Code extension](https://img.shields.io/badge/VS_Code-Wisp_extension-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)](editors/vscode-wisp/README.md)
+[![Made by Silverfox0338](https://img.shields.io/badge/made%20by-Silverfox0338-FF7A45?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Silverfox0338)
+
+### [Get started](#install-and-build)
+
+</div>
+
+---
+
+## What Wisp does
 
 - Define commands, options, buttons, menus, modals, and event handlers in readable scripts.
 - Store bot data locally with SQLite and reload scripts while developing.
 - Get syntax highlighting, diagnostics, and completion from the VS Code extension.
 
-Current version: **0.0.3**. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
+Current version: **0.0.3**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
 
 ## Install and build
 
