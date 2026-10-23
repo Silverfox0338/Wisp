@@ -2,7 +2,7 @@
   "name": "wisp-language",
   "displayName": "Wisp Language",
   "description": "Syntax highlighting and language intelligence for Wisp .wisp files",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "wisp-local",
   "private": true,
   "icon": "icons/extension.png",
@@ -48,6 +48,10 @@
         "extensions": [
           ".wisp"
         ],
+        "icon": {
+          "light": "./icons/extension.png",
+          "dark": "./icons/extension.png"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
@@ -78,6 +82,11 @@
         "id": "wisp-icons",
         "label": "Wisp Icons",
         "path": "./icons/icon-theme.json"
+      },
+      {
+        "id": "wisp-asfi-seti-icons",
+        "label": "Wisp + ASFI Seti",
+        "path": "./icons/wisp-asfi-seti-icon-theme.json"
       }
     ],
     "snippets": [

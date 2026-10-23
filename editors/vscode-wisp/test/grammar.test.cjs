@@ -10,6 +10,20 @@ const extension = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'u
 const config = JSON.parse(fs.readFileSync(path.join(root, 'language-configuration.json'), 'utf8'));
 const grammar = JSON.parse(fs.readFileSync(path.join(root, 'syntaxes/wisp.tmLanguage.json'), 'utf8'));
 
+test('combined icon theme keeps Seti file icons alongside Wisp mascots', () => {
+  const theme = JSON.parse(fs.readFileSync(path.join(root, 'icons/wisp-asfi-seti-icon-theme.json'), 'utf8'));
+  assert.equal(theme.languageIds.javascript, '_javascript');
+  assert.equal(theme.languageIds.typescript, '_typescript');
+  assert.equal(theme.languageIds.json, '_json');
+  assert.equal(theme.languageIds.markdown, '_markdown');
+  assert.equal(theme.fileExtensions.asfi, '_asfi');
+  assert.equal(theme.fileExtensions.wisp, 'wisp-file');
+  assert.equal(theme.fileExtensions['events/wisp'], 'wisp-event');
+  assert.equal(theme.fileExtensions['modules/wisp'], 'wisp-module');
+  assert.ok(fs.existsSync(path.join(root, 'icons', theme.fonts[0].src[0].path)));
+  assert.ok(fs.existsSync(path.join(root, 'icons', theme.iconDefinitions._asfi.iconPath)));
+});
+
 test('VS Code associates .wisp with the TextMate grammar', () => {
   assert.equal(extension.contributes.languages[0].id, 'wisp');
   assert.ok(extension.contributes.languages[0].extensions.includes('.wisp'));
