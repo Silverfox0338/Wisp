@@ -1,1 +1,20 @@
-{"iconDefinitions":{"wisp-file":{"iconPath":"./wisp.svg"}},"fileExtensions":{"wisp":"wisp-file"},"light":{"fileExtensions":{"wisp":"wisp-file"}},"highContrast":{"fileExtensions":{"wisp":"wisp-file"}}}
+{
+  "iconDefinitions": {
+    "wisp-file": {"iconPath": "./wisp.svg"},
+    "wisp-event": {"iconPath": "./wisp-event.svg"},
+    "wisp-module": {"iconPath": "./wisp-module.svg"}
+  },
+  "fileExtensions": {
+    "wisp": "wisp-file",
+    "events/wisp": "wisp-event",
+    "modules/wisp": "wisp-module",
+    "helpers/wisp": "wisp-module",
+    "utils/wisp": "wisp-module"
+  },
+  "folderNames": {
+    "events": "wisp-event",
+    "modules": "wisp-module",
+    "helpers": "wisp-module",
+    "utils": "wisp-module"
+  }
+}

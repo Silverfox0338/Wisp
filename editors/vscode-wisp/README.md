@@ -4,6 +4,8 @@ This local extension registers `.wisp` files, preserves TextMate syntax highligh
 
 The optional **Wisp Violet** color theme and **Wisp Icons** file icon theme are available from VS Code's theme pickers. Installation does not change your current theme. Component snippets and four-space indentation are included.
 
+Wisp Icons shows the blue mascot for `.wisp` files by default, red for files directly in `events/`, and green for files directly in `modules/`, `helpers/`, or `utils/`. Those folder icons use the same colors.
+
 Build and package in PowerShell:
 
 ```powershell

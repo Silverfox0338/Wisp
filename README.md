@@ -26,6 +26,16 @@ Write slash commands and event handlers in `.wisp` files, then run them with the
 
 Current version: **0.0.3**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
 
+## Mascots
+
+| Icon | Role |
+| --- | --- |
+| <img src="assets/wisp.svg" width="40" alt="Blue Wisp" /> | Wisp logo, commands, and other `.wisp` files |
+| <img src="assets/wisp-event.svg" width="40" alt="Red Wisp" /> | Events and listeners in `events/` |
+| <img src="assets/wisp-module.svg" width="40" alt="Green Wisp" /> | Reusable code in `modules/`, `helpers/`, or `utils/` |
+
+The optional Wisp Icons theme in the VS Code extension uses these colors for `.wisp` files in those folders.
+
 ## Install and build
 
 Requires Node.js 24.17 or newer. In PowerShell:
