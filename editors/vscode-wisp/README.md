@@ -4,7 +4,7 @@ This local extension registers `.wisp` files, preserves TextMate syntax highligh
 
 The optional **Wisp Violet** color theme and **Wisp Icons** file icon theme are available from VS Code's theme pickers. Installation does not change your current theme. Component snippets and four-space indentation are included.
 
-Wisp Icons shows the blue mascot for `.wisp` files by default, red for files directly in `events/`, and green for files directly in `modules/`, `helpers/`, or `utils/`. Those folder icons use the same colors.
+Wisp Icons shows the blue mascot for `.wisp` files by default, red for files directly in `events/`, and green for files directly in `modules/`, `helpers/`, or `utils/`. Folders keep the regular folder icon.
 
 Build and package in PowerShell:
 
@@ -13,7 +13,7 @@ Set-Location .\editors\vscode-wisp
 npm ci
 npm test
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
-code --install-extension .\wisp-language-0.0.4.vsix --force
+code --install-extension .\wisp-language-0.0.5.vsix --force
 ```
 
 Reload VS Code after installation. A `.wisp` file should show **Wisp** in the language picker. The server and grammar tests run offline. The VSIX can also be installed via VS Code's **Extensions: Install from VSIX** command.

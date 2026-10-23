@@ -60,7 +60,7 @@ Set-Location .\editors\vscode-wisp
 npm ci
 npm test
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
-code --install-extension .\wisp-language-0.0.4.vsix
+code --install-extension .\wisp-language-0.0.5.vsix
 ```
 
 The extension follows your current VS Code color theme and does not change it. It includes an optional Wisp Violet theme, a language server, manifest validation, snippets, and a file icon theme.

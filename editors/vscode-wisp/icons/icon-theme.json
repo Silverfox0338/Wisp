@@ -14,11 +14,5 @@
     "modules/wisp": "wisp-module",
     "helpers/wisp": "wisp-module",
     "utils/wisp": "wisp-module"
-  },
-  "folderNames": {
-    "events": "wisp-event",
-    "modules": "wisp-module",
-    "helpers": "wisp-module",
-    "utils": "wisp-module"
   }
 }
