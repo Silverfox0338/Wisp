@@ -1,18 +1,32 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
+const {mkdtempSync,mkdirSync,rmSync,writeFileSync}=require('node:fs');
+const {tmpdir}=require('node:os');
 const path=require('node:path');
+const {pathToFileURL}=require('node:url');
 
 test('language server handles initialization, diagnostics, completion and hover over LSP',async()=>{
+  const root=mkdtempSync(path.join(tmpdir(),'wisp-lsp-'));
+  const commands=path.join(root,'commands');
+  mkdirSync(commands);
+  writeFileSync(path.join(root,'wisp.json'),'{}');
+  const pollFile=path.join(commands,'poll.wisp');
+  const poll='command "poll":\n    description "Poll"\n    execute:\n        reply "Vote"\n';
+  writeFileSync(pollFile,poll);
+  const other=path.join(root,'other','commands');
+  mkdirSync(other,{recursive:true});
+  writeFileSync(path.join(root,'other','wisp.json'),'{}');
+  writeFileSync(path.join(other,'poll.wisp'),poll);
   const child=spawn(process.execPath,[path.join(__dirname,'../dist/server.js'),'--stdio'],{stdio:['pipe','pipe','pipe']});
   let buffer=Buffer.alloc(0),next=1;const pending=new Map(),notifications=[];
   child.stdout.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(true){const header=buffer.indexOf('\r\n\r\n');if(header<0)break;const match=/Content-Length:\s*(\d+)/i.exec(buffer.subarray(0,header).toString());if(!match)throw new Error('Missing Content-Length');const length=Number(match[1]);if(buffer.length<header+4+length)break;const data=JSON.parse(buffer.subarray(header+4,header+4+length).toString());buffer=buffer.subarray(header+4+length);if(data.id!==undefined&&pending.has(data.id)){pending.get(data.id)(data);pending.delete(data.id);}else notifications.push(data);}});
   const send=payload=>{const json=Buffer.from(JSON.stringify({jsonrpc:'2.0',...payload}));child.stdin.write(`Content-Length: ${json.length}\r\n\r\n`);child.stdin.write(json);};
   const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),5000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
   try{
-    const initialized=await request('initialize',{processId:process.pid,rootUri:null,capabilities:{}});assert.equal(initialized.result.capabilities.hoverProvider,true);
+    const initialized=await request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{}});assert.equal(initialized.result.capabilities.hoverProvider,true);
     send({method:'initialized',params:{}});
-    const uri='file:///test.wisp';send({method:'textDocument/didOpen',params:{textDocument:{uri,languageId:'wisp',version:1,text:'let x = missing\nguild.\n'}}});
+    const uri=pathToFileURL(pollFile).href.replace('poll.wisp','poll%2Ewisp');send({method:'textDocument/didOpen',params:{textDocument:{uri,languageId:'wisp',version:1,text:'let x = missing\nguild.\n'}}});
     const completed=await request('textDocument/completion',{textDocument:{uri},position:{line:1,character:6}});
     assert.ok(completed.result.some(item=>item.label==='joinRank'));
     assert.ok(!completed.result.some(item=>item.label==='ban'));
@@ -25,5 +39,14 @@ test('language server handles initialization, diagnostics, completion and hover 
     const symbols=await request('textDocument/documentSymbol',{textDocument:{uri}});assert.ok(symbols.result.some(item=>item.name==='greet'));
     const hovered=await request('textDocument/hover',{textDocument:{uri},position:{line:3,character:20}});assert.match(hovered.result.contents.value,/joinRank/);
     const hinted=await request('textDocument/signatureHelp',{textDocument:{uri},position:{line:3,character:text.split('\n')[3].indexOf('joinRank(')+'joinRank('.length}});assert.match(hinted.result.signatures[0].label,/member: Member/);
-  }finally{child.kill();}
+    send({method:'textDocument/didChange',params:{textDocument:{uri,version:3},contentChanges:[{text:poll}]}});
+    await request('textDocument/documentSymbol',{textDocument:{uri}});
+    const current=notifications.filter(item=>item.method==='textDocument/publishDiagnostics'&&item.params.uri===uri).at(-1);
+    assert.deepEqual(current.params.diagnostics,[]);
+    writeFileSync(path.join(commands,'another.wisp'),poll);
+    send({method:'textDocument/didChange',params:{textDocument:{uri,version:4},contentChanges:[{text:poll}]}});
+    await request('textDocument/documentSymbol',{textDocument:{uri}});
+    const duplicate=notifications.filter(item=>item.method==='textDocument/publishDiagnostics'&&item.params.uri===uri).at(-1);
+    assert.ok(duplicate.params.diagnostics.some(item=>item.code==='COMMAND003'));
+  }finally{child.kill();rmSync(root,{recursive:true,force:true});}
 });

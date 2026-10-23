@@ -13,7 +13,7 @@ Set-Location .\editors\vscode-wisp
 npm ci
 npm test
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
-code --install-extension .\wisp-language-0.0.3.vsix --force
+code --install-extension .\wisp-language-0.0.4.vsix --force
 ```
 
 Reload VS Code after installation. A `.wisp` file should show **Wisp** in the language picker. The server and grammar tests run offline. The VSIX can also be installed via VS Code's **Extensions: Install from VSIX** command.

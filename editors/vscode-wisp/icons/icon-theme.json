@@ -1,9 +1,13 @@
 {
   "iconDefinitions": {
+    "file-default": {"iconPath": "./file.svg"},
+    "folder-default": {"iconPath": "./folder.svg"},
     "wisp-file": {"iconPath": "./wisp.svg"},
     "wisp-event": {"iconPath": "./wisp-event.svg"},
     "wisp-module": {"iconPath": "./wisp-module.svg"}
   },
+  "file": "file-default",
+  "folder": "folder-default",
   "fileExtensions": {
     "wisp": "wisp-file",
     "events/wisp": "wisp-event",
