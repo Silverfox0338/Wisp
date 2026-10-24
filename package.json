@@ -1,13 +1,46 @@
 {
-  "name": "wisp",
-  "version": "0.0.4",
-  "private": true,
+  "name": "@silverfox0338/wisp",
+  "version": "0.0.5",
+  "description": "A scripting language and CLI for Discord bots",
+  "license": "GPL-3.0-only",
+  "author": "Silverfox0338",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Silverfox0338/Wisp.git"
+  },
+  "homepage": "https://github.com/Silverfox0338/Wisp#readme",
+  "bugs": "https://github.com/Silverfox0338/Wisp/issues",
   "type": "module",
+  "files": [
+    "dist/cli",
+    "dist/compiler",
+    "dist/discord",
+    "dist/project",
+    "dist/runtime",
+    "dist/storage",
+    "dist/diagnostics.js",
+    "dist/version.js",
+    "src",
+    "scripts/prepare-package.mjs",
+    "tsconfig.json",
+    "eslint.config.js",
+    "LICENSE",
+    "NOTICE.md",
+    "README.md",
+    "CHANGELOG.md",
+    "DISCORD_HTTP_API.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
     "wisp": "./dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "node scripts/prepare-package.mjs",
+    "prepublishOnly": "npm run lint && npm test",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "check": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src"

@@ -26,3 +26,20 @@ test('recurring task failures are isolated and close stops future runs',async()=
   assert.equal(runs,1);assert.equal(failures,1);
   scheduler.close();assert.equal(scheduler.size,0);
 });
+
+test('cancelling an active task aborts its Wisp execution',async()=>{
+  const scheduler=new Scheduler(()=>{});
+  let started:()=>void=()=>{};
+  const began=new Promise<void>(resolve=>{started=resolve;});
+  let cancelled=false;
+  scheduler.schedule('active',1,false,async signal=>{
+    started();
+    try{await execute(parse('wait()\n').statements,{values:{wait:host(()=>new Promise<Value>(()=>{}))},signal,timeoutMs:5000});}
+    catch(error){cancelled=String(error).includes('Execution cancelled');}
+  });
+  await began;
+  assert.equal(scheduler.cancel('active'),true);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(cancelled,true);
+  scheduler.close();
+});

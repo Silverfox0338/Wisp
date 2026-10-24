@@ -2,7 +2,7 @@
   "name": "wisp-language",
   "displayName": "Wisp Language",
   "description": "Syntax highlighting and language intelligence for Wisp .wisp files",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "wisp-local",
   "private": true,
   "icon": "icons/extension.png",

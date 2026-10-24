@@ -1,12 +1,24 @@
 # Changelog
 
+## 0.0.5
+
+- Added visual HTML and JSON execution trees for commands in `wisp dev` and offline tests with `wisp test --trace`.
+- Explained common Discord REST failures while preserving HTTP status and Discord codes.
+- Improved editor completion for returned Discord objects, event fields, permissions, and UI helpers.
+- Added advisory permission and role hierarchy checks.
+- Added builders for persistent buttons, selects, modals, embeds, and action rows.
+- Extended `.test.wisp` with mocked event execution.
+- Added cancellation signals for active scheduled tasks and shutdown diagnostics.
+- Expanded `wisp doctor` with privileged intent and slow trace warnings.
+- Improved command sync progress, binary REST responses, and OAuth route labeling.
+
 ## 0.0.4
 
 - Added a bot REST bridge with JSON and project-file uploads for Discord API routes, plus raw Gateway dispatch handlers.
 - Added configuration for all 21 Gateway intents supported by the installed Discord API types.
 - Added guarded outbound bot Gateway event support for opcodes 3, 4, 8, 31, and 43.
 - Added short Discord helpers for channels, roles, messages, members, polls, and persistent components.
-- Added named helpers for the 213 HTTP routes in the bundled Discord reference, with editor signatures and a route index.
+- Added named helpers for the 213 HTTP routes in a local Discord reference snapshot, with editor signatures and a route index.
 - Added structured Discord errors, SQLite failure details, and named permission flags.
 - Updated editor completion, manifest schema, and new project templates for 0.0.4.
 

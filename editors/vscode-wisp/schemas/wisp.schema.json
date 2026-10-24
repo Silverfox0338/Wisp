@@ -10,7 +10,7 @@
     "name":{"type":"string","minLength":1,"description":"Project display name."},
     "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$","description":"Project version in major.minor.patch form."},
     "entry":{"type":"string","minLength":1,"description":"Entrypoint .wisp file relative to the project root."},
-    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4",">=0.0.4 <0.0.5"],"description":"Compatible Wisp runtime. Existing 0.0.2 and 0.0.3 projects remain accepted."},
+    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4",">=0.0.4 <0.0.5",">=0.0.5 <0.0.6"],"description":"Compatible Wisp runtime. Older 0.0.2 through 0.0.4 projects remain accepted."},
     "discord":{"type":"object","additionalProperties":false,"required":["application_id","token","intents","commands"],"properties":{
       "application_id":{"type":"string","minLength":1,"description":"Discord application ID; use ${DISCORD_APPLICATION_ID}."},
       "token":{"type":"string","minLength":1,"description":"Bot token; use ${DISCORD_TOKEN}, never a committed literal."},

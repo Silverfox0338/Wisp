@@ -2,7 +2,7 @@ import routes from './reference-routes.json' with {type:'json'};
 import {WispError} from '../diagnostics.js';
 import {host,record,type HostFunction,type Value} from '../runtime/interpreter.js';
 
-export interface ReferenceRoute {method:string;route:string;description:string}
+export interface ReferenceRoute {method:string;route:string;description:string;auth:'bot'|'bearer'}
 export const referenceRoutes=routes as Record<string,Record<string,ReferenceRoute>>;
 
 function segment(value:Value,label:string):string {
@@ -29,6 +29,7 @@ export function referenceApi(request:HostFunction):Record<string,Record<string,H
     for(const [name,endpoint] of Object.entries(entries)){
       const placeholders=[...endpoint.route.matchAll(/\{([^}]+)\}/g)].map(match=>match[1]!);
       operations[name]=host((...args)=>{
+        if(endpoint.auth==='bearer')throw new WispError('DISCORD005',`${namespace}.${name} requires a user OAuth bearer token; the Wisp bot REST client cannot call this route`);
         const hasBody=endpoint.method==='POST'||endpoint.method==='PUT'||endpoint.method==='PATCH';
         if(args.length<placeholders.length||args.length>placeholders.length+(hasBody?4:3)){
           throw new WispError('DISCORD005',`${namespace}.${name} expects ${placeholders.length} path values, followed by optional options, query, reason, and files`);

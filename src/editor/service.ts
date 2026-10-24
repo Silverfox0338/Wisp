@@ -3,6 +3,7 @@ import {tokenize,type Token} from '../compiler/lexer.js';
 import type {Expr,Stmt} from '../compiler/ast.js';
 import {WispError} from '../diagnostics.js';
 import {apiMetadata,type ApiMember} from '../runtime/api-metadata.js';
+import {permissionNames} from '../discord/permissions.js';
 import {existsSync,readFileSync} from 'node:fs';
 import {dirname,isAbsolute,relative,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -15,7 +16,7 @@ export interface Definition {name:string;kind:'function'|'variable'|'parameter'|
 export interface Occurrence {range:Range;definition:Definition}
 interface Scope {parent?:Scope;start:number;end:number;definitions:Map<string,Definition>;children:Scope[];options?:Map<string,string>}
 export interface Analysis {diagnostics:Diagnostic[];definitions:Definition[];occurrences:Occurrence[];root:Scope;lines:string[];tokens:Token[];moduleExports:Map<string,Record<string,ApiMember>>}
-const roots:Record<string,string>={guild:'guild',interaction:'interaction',options:'options',storage:'storage',time:'time',math:'math',log:'log',scheduler:'scheduler',event:'event',json:'json',discord:'discord',len:'global',range:'global'};
+const roots:Record<string,string>={guild:'guild',interaction:'interaction',options:'options',storage:'storage',time:'time',math:'math',log:'log',scheduler:'scheduler',event:'event',json:'json',discord:'discord',ui:'ui',mock:'mock',assert:'assert',len:'global',range:'global'};
 const keywords=['command','description','option','type','required','choices','execute','event','on','let','global','function','return','try','catch','raise','if','else','for','in','while','reply','embed','import','as','export','every','after','seconds','show','modal','button','select','user_select','role_select','channel_select','choice','input','true','false','null','and','or','not'];
 function range(line:number,column:number,length:number):Range{return {start:{line:Math.max(0,line-1),character:Math.max(0,column-1)},end:{line:Math.max(0,line-1),character:Math.max(0,column-1)+Math.max(1,length)}};}
 function contains(r:Range,p:Position):boolean{return r.start.line===p.line&&r.start.character<=p.character&&p.character<r.end.character;}
@@ -51,6 +52,8 @@ export function completion(analysis:Analysis,position:Position):Completion[]{
   const line=(analysis.lines[position.line]??'').slice(0,position.character),scope=findScope(analysis.root,position.line+1);
   const property=/([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*)\.([A-Za-z_0-9]*)$/.exec(line);
   if(property){const type=propertyType(scope,property[1]!);const members=analysis.moduleExports.get(property[1]!)??(type?apiMetadata[type]:undefined);return Object.entries(members??{}).filter(([name])=>name.startsWith(property[2]!)).map(([name,info])=>({label:name,detail:info.signature,documentation:info.description,kind:info.signature?'function':'property'}));}
+  const permission=/discord\.permissions\.(?:of|has)\([^\n]*["']([a-z_]*)$/.exec(line);
+  if(permission)return permissionNames.filter(name=>name.startsWith(permission[1]!)).map(name=>({label:name,kind:'field',documentation:`Discord permission ${name}`}));
   const prefix=/[A-Za-z_0-9]*$/.exec(line)?.[0]??'';
   const visible=new Map<string,Completion>();let current:Scope|undefined=scope;while(current){for(const def of current.definitions.values())if(def.range.start.line<=position.line&&(!visible.has(def.name)))visible.set(def.name,{label:def.name,detail:def.signature,kind:def.kind==='function'?'function':def.kind==='module'?'module':'variable'});current=current.parent;}
   for(const [name,type] of Object.entries(roots))visible.set(name,{label:name,detail:type,kind:name==='len'||name==='range'?'function':'variable'});

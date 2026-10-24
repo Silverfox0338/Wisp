@@ -19,4 +19,22 @@ function ledgerPath(p:ProjectConfig){return join(p.root,'.wisp','command-state.j
 export function readLedger(p:ProjectConfig):string[]{const path=ledgerPath(p);if(!existsSync(path))return [];try{const data=JSON.parse(readFileSync(path,'utf8')) as Ledger;if(data.scope!==p.manifest.discord.commands.scope||data.application_id!==p.manifest.discord.application_id||data.guild_id!==p.manifest.discord.commands.guild_id)throw new Error('scope mismatch');return data.ids;}catch{throw new WispError('REGISTRY004','Command state ledger is invalid or belongs to another scope');}}
 function saveLedger(p:ProjectConfig,ids:string[]):void{const path=ledgerPath(p);mkdirSync(join(p.root,'.wisp'),{recursive:true});const d=p.manifest.discord;writeFileSync(path,JSON.stringify({scope:d.commands.scope,application_id:d.application_id,guild_id:d.commands.guild_id,ids:[...new Set(ids)].sort()},null,2));}
 export async function preview(p:ProjectConfig,local:CommandPayload[],api:CommandApi):Promise<DiffItem[]>{return diffCommands(local,await api.list(),readLedger(p));}
-export async function sync(p:ProjectConfig,local:CommandPayload[],api:CommandApi,prune=false):Promise<{added:number;updated:number;removed:number}>{const changes=await preview(p,local,api);if(changes.some(x=>x.kind==='conflict'))throw new WispError('REGISTRY004','Remote command name conflicts with a command not owned by this project');const ids=new Set(readLedger(p));let added=0,updated=0,removed=0;for(const item of changes){if(item.kind==='add'){const r=await api.create(item.local!);ids.add(r.id);added++;}else if(item.kind==='update'){const r=await api.update(item.remote!.id,item.local!);ids.add(r.id);updated++;}else if(item.kind==='same')ids.add(item.remote!.id);else if(item.kind==='remove'&&prune){await api.delete(item.remote!.id);ids.delete(item.remote!.id);removed++;}saveLedger(p,[...ids]);}return {added,updated,removed};}
+export async function sync(p:ProjectConfig,local:CommandPayload[],api:CommandApi,prune=false):Promise<{added:number;updated:number;removed:number;registered:number;total:number}>{
+  const changes=await preview(p,local,api);
+  if(changes.some(item=>item.kind==='conflict'))throw new WispError('REGISTRY004','Remote command name conflicts with a command not owned by this project');
+  const ids=new Set(readLedger(p));
+  let added=0,updated=0,removed=0,registered=0;
+  for(const item of changes){
+    try{
+      if(item.kind==='add'){const created=await api.create(item.local!);ids.add(created.id);added++;registered++;}
+      else if(item.kind==='update'){const changed=await api.update(item.remote!.id,item.local!);ids.add(changed.id);updated++;registered++;}
+      else if(item.kind==='same'){ids.add(item.remote!.id);registered++;}
+      else if(item.kind==='remove'&&prune){await api.delete(item.remote!.id);ids.delete(item.remote!.id);removed++;}
+      saveLedger(p,[...ids]);
+    }catch(error){
+      const detail=error instanceof Error?error.message:'Discord request failed';
+      throw new WispError('REGISTRY004',`Sync stopped at /${item.name}; ${registered}/${local.length} local commands confirmed. ${detail}`);
+    }
+  }
+  return {added,updated,removed,registered,total:local.length};
+}

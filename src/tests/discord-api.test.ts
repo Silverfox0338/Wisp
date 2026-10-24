@@ -40,6 +40,11 @@ test('every bundled HTTP route has a named helper and editor signature',async()=
       assert.ok(group[name],`${namespace}.${name}`);
       assert.ok(metadata[name]?.signature,`editor signature for ${namespace}.${name}`);
       const ids=[...route.route.matchAll(/\{[^}]+\}/g)].map(()=> '42');
+      if(route.auth==='bearer'){
+        await assert.rejects(async()=>generated[namespace]![name]!.call(...ids),/OAuth bearer token/);
+        count++;
+        continue;
+      }
       await generated[namespace]![name]!.call(...ids);
       const sent=seen.at(-1)!;
       assert.equal(sent.method,route.method,`${namespace}.${name} method`);
@@ -48,6 +53,24 @@ test('every bundled HTTP route has a named helper and editor signature',async()=
     }
   }
   assert.equal(count,213);
+});
+
+test('binary Discord responses are returned as base64 and empty responses as null',async()=>{
+  const replies=[Uint8Array.from([0,1,255]).buffer,new ArrayBuffer(0)];
+  const client={rest:{request:async()=>replies.shift()}} as unknown as Client;
+  const api=discordApi(client) as Record<string,HostFunction>;
+  assert.deepEqual(await api.request!.call('GET','/guilds/42/widget.png'),{base64:'AAH/',encoding:'base64'});
+  assert.equal(await api.request!.call('DELETE','/channels/42'),null);
+});
+
+test('OAuth-only reference routes stop before sending a bot-authenticated request',async()=>{
+  let requests=0;
+  const client={rest:{request:async()=>{requests++;return null;}}} as unknown as Client;
+  const api=discordApi(client) as Record<string,Record<string,HostFunction>>;
+  await assert.rejects(async()=>api.users!.getCurrentConnections!.call(),/user OAuth bearer token/);
+  await assert.rejects(async()=>api.lobbies!.createOrJoin!.call({secret:'abc'}),/user OAuth bearer token/);
+  assert.match(apiMetadata.discordUsers!.getCurrentConnections!.description,/bearer token/);
+  assert.equal(requests,0);
 });
 
 test('reference helpers forward body, query, audit reason, and files safely',async()=>{
@@ -232,7 +255,8 @@ test('Discord failures expose status and API code to Wisp catch blocks',async()=
   const script=parse('try:\n    discord.channels.create("42", {"name": "private"})\ncatch error:\n    reply "{error.status}:{error.code}:{error.wispCode}:{error.message}"\n');
   const replies:string[]=[];
   await execute(script.statements,{values:{discord:discordApi(client)},reply:async body=>{replies.push(body.content!);}});
-  assert.deepEqual(replies,['403:50013:DISCORD005:Discord API request failed (HTTP 403)']);
+  assert.equal(replies.length,1);
+  assert.match(replies[0]!,/^403:50013:DISCORD005:.*permission.*role.*HTTP 403, Discord 50013/);
 });
 
 test('Discord bridge rejects URLs, invalid routes, and invalid query values',async()=>{

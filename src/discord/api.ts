@@ -1,5 +1,6 @@
 import type {Client} from 'discord.js';
 import {WispError} from '../diagnostics.js';
+import {explainDiscordError} from './errors.js';
 import {host,record,type Value} from '../runtime/interpreter.js';
 import {readFile,realpath,stat} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,basename} from 'node:path';
@@ -97,13 +98,23 @@ export function discordApi(client:Client,projectRoot?:string):Value {
     if(query!==null){const input=plain(query,'Query');if(!input||typeof input!=='object'||Array.isArray(input))throw new WispError('DISCORD005','Query must be a map');for(const [key,value] of Object.entries(input)){if(!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(key))throw new WispError('DISCORD005','Invalid query key');for(const item of Array.isArray(value)?value:[value]){if(item===null||typeof item==='object')throw new WispError('DISCORD005','Query values must be strings, numbers, booleans, or lists of those');params.append(key,String(item));}}}
     const tokenRoute=/^\/(?:interactions|webhooks)\/\d+\/[^/]+(?:\/|$)/.test(path);
     const requestOptions={fullRoute:path as `/${string}`,method:method.toUpperCase() as Parameters<Client['rest']['request']>[0]['method'],...(body!==null?{body:plain(body,'Body')}:{ }),...(query!==null?{query:params}:{}),...(reason!==null?{reason}: {}),...(tokenRoute?{auth:false}:{}),...(uploads.length?{files:uploads}:{}),...(uploads.some(file=>file.key==='file')?{appendToFormData:true}:{})};
-    try{return plain(await client.rest.request(requestOptions) as Value,'Discord response') as Value;}catch(error){
+    try{
+      const result=await client.rest.request(requestOptions);
+      if(result instanceof ArrayBuffer||ArrayBuffer.isView(result)){
+        const binary=Buffer.from(result instanceof ArrayBuffer?result:result.buffer,result instanceof ArrayBuffer?0:result.byteOffset,result instanceof ArrayBuffer?undefined:result.byteLength);
+        if(!binary.length)return null;
+        if(binary.length>768*1024)throw new WispError('DISCORD005','Binary Discord response exceeds 768 KiB');
+        return {base64:binary.toString('base64'),encoding:'base64'};
+      }
+      return plain(result as Value,'Discord response') as Value;
+    }catch(error){
       if(error instanceof WispError)throw error;
       const details=error&&typeof error==='object'?error as {status?:unknown;code?:unknown}:{};
       const status=typeof details.status==='number'?details.status:null;
-      const failure=new WispError('DISCORD005',`Discord API request failed (HTTP ${status??'unknown'})`);
+      const discordCode=typeof details.code==='number'||typeof details.code==='string'?details.code:null;
+      const failure=new WispError('DISCORD005',`${explainDiscordError(status,discordCode)} (HTTP ${status??'unknown'}${discordCode!==null?`, Discord ${discordCode}`:''})`);
       failure.status=status;
-      failure.discordCode=typeof details.code==='number'||typeof details.code==='string'?details.code:null;
+      failure.discordCode=discordCode;
       throw failure;
     }
   });
