@@ -86,6 +86,8 @@ wisp run
 
 `wisp run` loads handlers and connects to Discord. It does not register commands; sync is deliberate. Use `wisp dev` for script reload after successful validation. To remove commands previously managed by this project, run `wisp commands sync --prune --yes`. Remote commands outside the local ownership ledger are preserved. A remote command with a colliding name causes sync to stop.
 
+Slow interactions are acknowledged automatically. A reply keeps the visibility requested by its `ephemeral` value, even if the automatic acknowledgment used a different visibility. Gateway events run with up to 32 handlers at once; another 256 events wait in order. Further events are dropped with a warning when that queue is full. Queued events are discarded during shutdown.
+
 ## Architecture
 
 `src/compiler` holds lexer, parser, and AST types. `src/runtime` interprets the AST against explicit host functions and a standard library. `src/project` loads the manifest, discovers scripts, and manages reload generations. `src/discord` handles registration, responses, gateway events, and ranking. `src/storage` handles SQLite migrations and key/value storage. `src/cli` exposes the commands. `src/tests` has offline tests. Example bots are kept locally and are excluded from this repository.
