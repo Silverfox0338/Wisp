@@ -98,9 +98,43 @@ Use `discord.request(method, path, body = null, query = null, reason = null, fil
 command "hello":
     description "Send a message to this channel"
     execute:
-        let message = discord.request("POST", "/channels/{interaction.channelId}/messages", {content: "Hello!"})
+        let message = discord.request("POST", "/channels/{interaction.channelId}/messages", {"content": "Hello!"})
         reply "Sent message {message.id}"
 ```
+
+For common guild operations, use `discord.channels` and `discord.roles`. IDs are strings; options are maps of Discord API fields. The optional final argument on create, edit, and delete is an audit log reason. `discord.permissions.of(...)` combines snake_case permission names into the decimal string Discord expects:
+
+```wisp
+command "setup":
+    description "Create a support role and channel"
+    execute:
+        let read = discord.permissions.of("view_channel", "read_message_history")
+        let role = discord.role(interaction.guildId, "Support", {"permissions": read})
+        let channel = discord.channel(interaction.guildId, "support", {"type": 0})
+        discord.channels.setPermissions(channel.id, role.id, {"allow": read, "deny": "0", "type": 0})
+        discord.send(channel.id, "Support is ready")
+        reply "Created {role.name} and {channel.name}"
+```
+
+For common actions, use `discord.channel(guildId, name, settings)`, `discord.role(guildId, name, settings)`, `discord.thread(channelId, name, settings)`, `discord.send(channelId, text, settings)`, `discord.react(channelId, messageId, emoji)`, `discord.addRole(guildId, userId, roleId)`, `discord.kick(guildId, userId, reason)`, and `discord.ban(guildId, userId, reason, settings)`. Optional settings and reasons follow the required IDs, name, or text. Matching `unreact`, `removeRole`, and `unban` calls undo those actions. The longer `discord.channels`, `discord.roles`, `discord.members`, `discord.messages`, `discord.reactions`, `discord.threads`, and `discord.bans` groups remain available for less common operations. All calls share Discord's REST rate limiter; see [the Discord guide](docs/discord.md).
+
+More short calls: `discord.editMessage(channelId, messageId, text)`, `discord.deleteMessage(channelId, messageId)`, `discord.dm(userId, text)`, `discord.invite(channelId, settings)`, `discord.nick(guildId, userId, name)`, and `discord.timeout(guildId, userId, seconds)`. Use `discord.untimeout(guildId, userId)` to clear a timeout. Optional settings or audit reasons come after the required arguments.
+
+The bundled Discord reference also backs `discord.poll(channelId, question, answers, settings)`, `discord.endPoll(channelId, messageId)`, `discord.voters(channelId, messageId, answerId)`, and `discord.audit(guildId, query)`. `discord.guild(id)` and `discord.user(id)` fetch records. `discord.pins(channelId)`, `discord.pin(channelId, messageId)`, and `discord.unpin(channelId, messageId)` use the current pin routes. The `discord.events` and `discord.automod` groups expose scheduled event and Auto Moderation operations with Discord's documented field maps. For example:
+
+```wisp
+command "lunch":
+    description "Ask about lunch"
+    execute:
+        let poll = discord.poll(interaction.channelId, "Lunch?", ["Pizza", "Tacos"], {"duration": 48})
+        reply "Poll posted: {poll.id}"
+```
+
+Every HTTP route in `discord-api-reference.zip` (Discord reference snapshot dated October 24, 2026) now has a named helper in a group such as `discord.emojis`, `discord.stickers`, `discord.webhooks`, `discord.soundboard`, `discord.guilds`, or `discord.users`. See [the complete HTTP helper index](DISCORD_HTTP_API.md) for the 213 names and routes. The short calls above remain the easiest way to handle common bot tasks. OAuth2-only routes, voice media, SDK APIs, RPC, and webhook event receivers need credentials or protocols beyond the bot REST client.
+
+Buttons and select menus now persist by default while their Discord message exists. Add `expires: 300` in a button or select block to expire its Wisp state after five minutes; `expires: 0` explicitly means no expiry. State is stored in SQLite, and clicks continue to reach the matching `on button` or select handler after a bot restart when the database and handler are still present. Existing controls keep their original expiration. See [interactive components](docs/components.md).
+
+Discord REST failures expose `error.status` (HTTP number) and `error.code` (Discord API number) inside `catch`. `error.message` retains its existing text. `error.wispCode` contains Wisp's diagnostic code, such as `DISCORD005`.
 
 Use `on gateway "DISPATCH_NAME"` to receive a raw Gateway dispatch. The handler reads `event.type`, `event.data`, and `event.sequence`:
 

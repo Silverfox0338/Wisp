@@ -4,7 +4,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parse} from '../compiler/parser.js';
-import {execute,type RuntimeComponent} from '../runtime/interpreter.js';
+import {execute,record,type RuntimeComponent,type Value} from '../runtime/interpreter.js';
 import {Storage} from '../storage/sqlite.js';
 import {ComponentRegistry} from '../discord/components.js';
 
@@ -30,6 +30,28 @@ test('component ownership, guild scope, expiration and persistence survive reope
     assert.equal(registry.resolve(id,'button','guild-1','user-1').name,'confirm');
     storage.putComponent({id:'ss:'+'a'.repeat(32),kind:'button',name:'old',guildId:'guild-1',ownerId:null,expiresAt:Date.now()-1,state:{}});
     assert.throws(()=>registry.resolve('ss:'+'a'.repeat(32),'button','guild-1','user-1'),/expired/);
+    storage.close();
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('buttons remain active by default across restart and allow an explicit expiry',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'wisp-persistent-button-')),path=join(root,'state.db');
+  try{
+    let storage=new Storage(path),registry=new ComponentRegistry(storage,'guild-1','user-1');
+    const permanent=registry.buildRows([{kind:'button',name:'open',fields:{label:'Open'}}])[0]!.components[0]!.toJSON();
+    const timed=registry.buildRows([{kind:'button',name:'close',fields:{label:'Close',expires:60}}])[0]!.components[0]!.toJSON();
+    assert.ok('custom_id' in permanent&&'custom_id' in timed);
+    assert.equal(registry.resolve(permanent.custom_id,'button','guild-1','user-1').expiresAt,0);
+    assert.ok(registry.resolve(timed.custom_id,'button','guild-1','user-1').expiresAt>Date.now());
+    assert.equal(storage.cleanupComponents(),0);
+    storage.close();storage=new Storage(path);registry=new ComponentRegistry(storage,'guild-1','user-1');
+    assert.equal(registry.resolve(permanent.custom_id,'button','guild-1','user-1').name,'open');
+    assert.equal(registry.resolve(timed.custom_id,'button','guild-1','user-1').name,'close');
+    const handler=parse('on button "open":\n    reply "Still working"\n').events[0]!;
+    const replies:string[]=[];
+    await execute(handler.body,{values:{interaction:record({state:record(registry.resolve(permanent.custom_id,'button','guild-1','user-1').state)}) as Value},reply:async body=>{replies.push(body.content!);}});
+    assert.deepEqual(replies,['Still working']);
+    assert.throws(()=>registry.buildRows([{kind:'button',name:'bad',fields:{label:'Bad',expires:-1}}]),/expires/);
     storage.close();
   }finally{rmSync(root,{recursive:true,force:true});}
 });

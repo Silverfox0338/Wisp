@@ -1,18 +1,19 @@
 import {randomInt} from 'node:crypto';
 import {WispError} from '../diagnostics.js';
 import {Storage} from '../storage/sqlite.js';
-import {host,record,type Value} from './interpreter.js';
+import {host,record,type HostFunction,type Value} from './interpreter.js';
 function number(value:Value,label:string):number{if(typeof value!=='number'||!Number.isFinite(value))throw new WispError('RUNTIME002',`${label} must be a finite number`);return value;}
 function string(value:Value,label:string):string{if(typeof value!=='string')throw new WispError('RUNTIME002',`${label} must be a string`);return value;}
+function storageHost(call:HostFunction['call']):HostFunction{return host((...args)=>{try{return call(...args);}catch(error){if(error instanceof WispError)throw error;if(error instanceof Error&&typeof (error as Error&{code?:unknown}).code==='string'&&(error as Error&{code:string}).code.startsWith('ERR_SQLITE_'))throw new WispError('STORAGE006',`SQLite: ${error.message}`);throw error;}});}
 export function storageApi(db:Storage,scope:string):Value{return record({
-  get:host((key,fallback=null)=>db.get(scope,string(key,'key'),fallback)),
-  set:host((key,value)=>{db.set(scope,string(key,'key'),value);return null;}),
-  delete:host(key=>{db.delete(scope,string(key,'key'));return null;}),
-  has:host(key=>db.has(scope,string(key,'key'))),
-  increment:host((key,amount=1)=>db.increment(scope,string(key,'key'),number(amount,'amount'))),
-  sharedGet:host((key,fallback=null)=>db.get('shared',string(key,'key'),fallback)),
-  sharedSet:host((key,value)=>{db.set('shared',string(key,'key'),value);return null;}),
-  sharedIncrement:host((key,amount=1)=>db.increment('shared',string(key,'key'),number(amount,'amount')))
+  get:storageHost((key,fallback=null)=>db.get(scope,string(key,'key'),fallback)),
+  set:storageHost((key,value)=>{db.set(scope,string(key,'key'),value);return null;}),
+  delete:storageHost(key=>{db.delete(scope,string(key,'key'));return null;}),
+  has:storageHost(key=>db.has(scope,string(key,'key'))),
+  increment:storageHost((key,amount=1)=>db.increment(scope,string(key,'key'),number(amount,'amount'))),
+  sharedGet:storageHost((key,fallback=null)=>db.get('shared',string(key,'key'),fallback)),
+  sharedSet:storageHost((key,value)=>{db.set('shared',string(key,'key'),value);return null;}),
+  sharedIncrement:storageHost((key,amount=1)=>db.increment('shared',string(key,'key'),number(amount,'amount')))
 }) as Value;}
 export function mathApi():Value{return record({
   abs:host(v=>Math.abs(number(v,'value'))),floor:host(v=>Math.floor(number(v,'value'))),ceil:host(v=>Math.ceil(number(v,'value'))),round:host(v=>Math.round(number(v,'value'))),

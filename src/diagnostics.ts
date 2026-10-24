@@ -1,6 +1,8 @@
 import {existsSync,readFileSync} from 'node:fs';
 export class WispError extends Error {
   readonly frames:{file?:string;line:number;column:number}[]=[];
+  status:number|null=null;
+  discordCode:number|string|null=null;
   constructor(public readonly code: string, message: string, public readonly file?: string, public readonly line?: number, public readonly column?: number,public readonly suggestion?:string) {
     super(message); this.name = 'WispError';
   }

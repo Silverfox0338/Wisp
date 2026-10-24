@@ -14,9 +14,10 @@ export class ComponentRegistry {
   constructor(private readonly storage:Storage,private readonly guildId:string,private readonly userId:string){}
   private register(component:RuntimeComponent):string {
     const owner=component.fields.owner??'any';if(owner!=='any'&&owner!=='user')throw new WispError('COMPONENT001','owner must be "any" or "user"');
-    const expires=component.fields.expires===undefined?3600:integer(component.fields.expires,'expires',1,604800);
+    const now=Date.now(),maxSeconds=Math.floor((Number.MAX_SAFE_INTEGER-now)/1000);
+    const expires=component.fields.expires===undefined?(component.kind==='modal'?3600:0):integer(component.fields.expires,'expires',0,maxSeconds);
     const id=`ss:${randomBytes(16).toString('hex')}`;
-    this.storage.putComponent({id,kind:component.kind,name:component.name,guildId:this.guildId,ownerId:owner==='user'?this.userId:null,expiresAt:Date.now()+expires*1000,state:state(component.fields.state)});
+    this.storage.putComponent({id,kind:component.kind,name:component.name,guildId:this.guildId,ownerId:owner==='user'?this.userId:null,expiresAt:expires===0?0:now+expires*1000,state:state(component.fields.state)});
     return id;
   }
   resolve(id:string,kind:string,guildId:string|null,userId:string):ComponentState {

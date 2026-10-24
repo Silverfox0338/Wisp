@@ -1,14 +1,17 @@
 # Changelog
 
-## 0.0.4 - 2026-10-23
+## 0.0.4
 
 - Added a bot REST bridge with JSON and project-file uploads for Discord API routes, plus raw Gateway dispatch handlers.
 - Added configuration for all 21 Gateway intents supported by the installed Discord API types.
 - Added guarded outbound bot Gateway event support for opcodes 3, 4, 8, 31, and 43.
+- Added short Discord helpers for channels, roles, messages, members, polls, and persistent components.
+- Added named helpers for the 213 HTTP routes in the bundled Discord reference, with editor signatures and a route index.
+- Added structured Discord errors, SQLite failure details, and named permission flags.
 - Updated editor completion, manifest schema, and new project templates for 0.0.4.
 
 
-## 0.0.3 - 2026-10-23
+## 0.0.3
 
 - Added namespaced local Wisp modules with explicit exports, circular-import detection, and root path protection.
 - Added local package add/list/remove with version and SHA-256 integrity verification.
@@ -19,7 +22,7 @@
 - Built local poll and utility examples; kept the join-history bot and v0.0.2 manifest compatibility.
 
 
-## 0.0.2 - 2026-10-23
+## 0.0.2
 
 - Added `while`, user-defined functions, `return`, invocation-global assignment, `len`, expanded host APIs, and null fallback with `or`.
 - Added role/channel options, named command permissions, richer embed validation, explicit defer and follow-up actions, and message events.
@@ -29,4 +32,4 @@
 
 ### Breaking migration
 
-The old `0.1.0` label was replaced with `0.0.2`. Existing manifests must change `version` to `0.0.2` and `runtime` to `>=0.0.2 <0.0.3`. Command syntax and SQLite schema 1 remain compatible. `or` now accepts null fallback in addition to boolean OR; use `??` for a strictly null-only fallback.
+Projects created before `0.0.2` must set manifest `version` to `0.0.2` and `runtime` to `>=0.0.2 <0.0.3`. Command syntax and SQLite schema 1 remain compatible. `or` now accepts null fallback in addition to boolean OR; use `??` for a strictly null-only fallback.

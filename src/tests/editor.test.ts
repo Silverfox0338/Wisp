@@ -17,6 +17,23 @@ test('editor completion lists only published guild and storage APIs',()=>{
   assert.match(signature(analyze('guild.joinRank(','editor.wisp'),{line:0,character:15})?.signature??'',/member: Member/);
 });
 
+test('editor exposes nested Discord helpers',()=>{
+  const discord=completion(analyze('discord.','editor.wisp'),{line:0,character:8}).map(item=>item.label);
+  for(const name of ['send','editMessage','deleteMessage','dm','invite','nick','timeout','untimeout','channel','role','thread','react','ban','kick','poll','endPoll','voters','audit','guild','user','pins','pin','unpin','events','automod'])assert.ok(discord.includes(name));
+  const channels=completion(analyze('discord.channels.','editor.wisp'),{line:0,character:17}).map(item=>item.label);
+  assert.deepEqual(channels.sort(),Object.keys(apiMetadata.discordChannels!).sort());
+  const messages=completion(analyze('discord.messages.','editor.wisp'),{line:0,character:17}).map(item=>item.label);
+  assert.deepEqual(messages.sort(),Object.keys(apiMetadata.discordMessages!).sort());
+  const threads=completion(analyze('discord.threads.','editor.wisp'),{line:0,character:16}).map(item=>item.label);
+  assert.deepEqual(threads.sort(),Object.keys(apiMetadata.discordThreads!).sort());
+  const events=completion(analyze('discord.events.','editor.wisp'),{line:0,character:15}).map(item=>item.label);
+  assert.deepEqual(events.sort(),Object.keys(apiMetadata.discordEvents!).sort());
+  const automod=completion(analyze('discord.automod.','editor.wisp'),{line:0,character:16}).map(item=>item.label);
+  assert.deepEqual(automod.sort(),Object.keys(apiMetadata.discordAutomod!).sort());
+  assert.match(hover(analyze('discord.roles.create','editor.wisp'),{line:0,character:15})??'',/Create a guild role/);
+  assert.match(signature(analyze('discord.permissions.of(','editor.wisp'),{line:0,character:23})?.signature??'',/names: string/);
+});
+
 test('editor finds local definitions, references and semantic errors',()=>{
   const source='function greet(name):\n    return name\nlet result = greet("Fox")\nreply result\n';
   const analysis=analyze(source,'editor.wisp');assert.deepEqual(analysis.diagnostics,[]);
