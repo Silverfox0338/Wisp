@@ -15,7 +15,7 @@ export interface Definition {name:string;kind:'function'|'variable'|'parameter'|
 export interface Occurrence {range:Range;definition:Definition}
 interface Scope {parent?:Scope;start:number;end:number;definitions:Map<string,Definition>;children:Scope[];options?:Map<string,string>}
 export interface Analysis {diagnostics:Diagnostic[];definitions:Definition[];occurrences:Occurrence[];root:Scope;lines:string[];tokens:Token[];moduleExports:Map<string,Record<string,ApiMember>>}
-const roots:Record<string,string>={guild:'guild',interaction:'interaction',options:'options',storage:'storage',time:'time',math:'math',log:'log',scheduler:'scheduler',event:'event',json:'json',len:'global',range:'global'};
+const roots:Record<string,string>={guild:'guild',interaction:'interaction',options:'options',storage:'storage',time:'time',math:'math',log:'log',scheduler:'scheduler',event:'event',json:'json',discord:'discord',len:'global',range:'global'};
 const keywords=['command','description','option','type','required','choices','execute','event','on','let','global','function','return','try','catch','raise','if','else','for','in','while','reply','embed','import','as','export','every','after','seconds','show','modal','button','select','user_select','role_select','channel_select','choice','input','true','false','null','and','or','not'];
 function range(line:number,column:number,length:number):Range{return {start:{line:Math.max(0,line-1),character:Math.max(0,column-1)},end:{line:Math.max(0,line-1),character:Math.max(0,column-1)+Math.max(1,length)}};}
 function contains(r:Range,p:Position):boolean{return r.start.line===p.line&&r.start.character<=p.character&&p.character<r.end.character;}

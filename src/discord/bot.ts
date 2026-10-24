@@ -15,6 +15,7 @@ import {ComponentRegistry} from './components.js';
 import {commandPermissions} from './permissions.js';
 import {EventGate} from './events.js';
 import {WispError} from '../diagnostics.js';
+import {discordApi} from './api.js';
 
 function userValue(user:User):Value{return record({id:user.id,name:user.displayName,username:user.username,bot:user.bot,createdAt:user.createdAt.toISOString(),mention:`<@${user.id}>`}) as Value;}
 function memberValue(member:GuildMember|PartialGuildMember):Value{return record({id:member.id,name:member.displayName,nickname:member.nickname??null,username:member.user.username,bot:member.user.bot,createdAt:member.user.createdAt.toISOString(),joinedAt:member.joinedAt?.toISOString()??null,roles:'roles' in member&&'cache' in member.roles?[...member.roles.cache.values()].map(r=>record({id:r.id,name:r.name})):[],permissions:member.permissions?.bitfield?.toString()??null,mention:`<@${member.id}>`}) as Value;}
@@ -24,10 +25,8 @@ function safe(error:unknown):string{return error instanceof WispError?`${error.c
 
 export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=false,reload?:()=>CompiledProject):Promise<void>{
   const configured=project.manifest.discord.intents;
-  const intents=[GatewayIntentBits.Guilds];
-  if(configured.includes('guild_members'))intents.push(GatewayIntentBits.GuildMembers);
-  if(configured.includes('guild_messages'))intents.push(GatewayIntentBits.GuildMessages);
-  if(configured.includes('message_content'))intents.push(GatewayIntentBits.MessageContent);
+  const intentBits:Record<string,number>={guilds:GatewayIntentBits.Guilds,guild_members:GatewayIntentBits.GuildMembers,guild_moderation:GatewayIntentBits.GuildModeration,guild_expressions:GatewayIntentBits.GuildExpressions,guild_integrations:GatewayIntentBits.GuildIntegrations,guild_webhooks:GatewayIntentBits.GuildWebhooks,guild_invites:GatewayIntentBits.GuildInvites,guild_voice_states:GatewayIntentBits.GuildVoiceStates,guild_presences:GatewayIntentBits.GuildPresences,guild_messages:GatewayIntentBits.GuildMessages,guild_message_reactions:GatewayIntentBits.GuildMessageReactions,guild_message_typing:GatewayIntentBits.GuildMessageTyping,direct_messages:GatewayIntentBits.DirectMessages,direct_message_reactions:GatewayIntentBits.DirectMessageReactions,direct_message_typing:GatewayIntentBits.DirectMessageTyping,message_content:GatewayIntentBits.MessageContent,guild_scheduled_events:GatewayIntentBits.GuildScheduledEvents,auto_moderation_configuration:GatewayIntentBits.AutoModerationConfiguration,auto_moderation_execution:GatewayIntentBits.AutoModerationExecution,guild_message_polls:GatewayIntentBits.GuildMessagePolls,direct_message_polls:GatewayIntentBits.DirectMessagePolls};
+  const intents=[...new Set([GatewayIntentBits.Guilds,...configured.map(name=>intentBits[name]!)])];
   const client=new Client({intents}),storage=new Storage(project.paths.database),ranking=new RankingService(storage),registry=new ReloadableProject(compiled,reload??(()=>compiled));
   const watchers:FSWatcher[]=[],inFlight=new Set<Promise<void>>(),eventGate=new EventGate(32);let stopped=false;
   const log=(level:string,message:string)=>{const order=['debug','info','warn','error'];if(order.indexOf(level)<order.indexOf(project.manifest.logging.level))return;console.log(`${new Date().toISOString()} ${level.toUpperCase()} ${message}`);};
@@ -37,10 +36,11 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
   componentCleanup.unref();
   const track=(promise:Promise<void>)=>{inFlight.add(promise);void promise.then(()=>inFlight.delete(promise),()=>inFlight.delete(promise));};
   const logApi=record(Object.fromEntries(['info','warn','error','debug'].map(level=>[level,host(value=>{log(level,String(value));return null;})]))) as Value;
-  const common=(scope:string)=>({storage:storageApi(storage,scope),time:timeApi(),math:mathApi(),json:jsonApi(),log:logApi,scheduler:record({cancel:host(name=>{if(typeof name!=='string')throw new WispError('SCHEDULE001','Task name must be a string');return scheduler.cancel(name);})}) as Value});
+  const common=(scope:string)=>({storage:storageApi(storage,scope),time:timeApi(),math:mathApi(),json:jsonApi(),discord:discordApi(client,project.root),log:logApi,scheduler:record({cancel:host(name=>{if(typeof name!=='string')throw new WispError('SCHEDULE001','Task name must be a string');return scheduler.cancel(name);})}) as Value});
   const schedule=(file:string)=>(name:string,seconds:number,repeat:boolean,body:Stmt[])=>scheduler.schedule(name,seconds,repeat,async()=>{const work=execute(body,{values:common(`task:${name}`),file,timeoutMs:10000,maxSteps:10000,maxLoops:10000,resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:common(`task:${name}`)})}).then(()=>{});track(work);await work;});
   async function dispatchEvent(name:string,data:Record<string,Value>):Promise<void>{if(stopped)return;const accepted=await eventGate.run(async()=>{for(const handler of registry.value.events.filter(e=>e.name===name)){try{const started=Date.now();await execute(handler.body,{values:{...common(handler.file),event:record(data) as Value},file:handler.file,schedule:schedule(handler.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:common(handler.file)}),timeoutMs:10000,maxSteps:10000,maxLoops:10000});log('debug',`Event ${name} completed in ${Date.now()-started} ms`);}catch(error){log('error',`${handler.file}: ${safe(error)}`);}}});if(!accepted&&!stopped)log('warn',`Event ${name} dropped because the queue is full`);}
   client.once('clientReady',()=>{log('info','Connected to Discord');track(dispatchEvent('ready',{}));});
+  client.on('raw',packet=>{if(typeof packet.t!=='string'||!registry.value.events.some(event=>event.name===`gateway:${packet.t}`))return;try{const json=JSON.stringify(packet.d??null);if(json.length>1024*1024)throw new Error('Gateway payload exceeds limit');const data=JSON.parse(json) as Value;track(dispatchEvent(`gateway:${packet.t}`,{type:packet.t,data,sequence:typeof packet.s==='number'?packet.s:null}));}catch{log('warn',`Gateway event ${packet.t} could not be converted to Wisp data`);}});
   client.on('guildMemberAdd',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_join',{member:memberValue(member)}));});
   client.on('guildMemberRemove',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_leave',{member:memberValue(member)}));});
   client.on('messageCreate',message=>{track(dispatchEvent('message_create',{message:messageValue(message)}));});

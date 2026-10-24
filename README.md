@@ -24,7 +24,7 @@ Write slash commands and event handlers in `.wisp` files, then run them with the
 - Store bot data locally with SQLite and reload scripts while developing.
 - Get syntax highlighting, diagnostics, and completion from the VS Code extension.
 
-Current version: **0.0.3**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
+Current version: **0.0.4**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
 
 ## Mascots
 
@@ -87,6 +87,31 @@ wisp run
 `wisp run` loads handlers and connects to Discord. It does not register commands; sync is deliberate. Use `wisp dev` for script reload after successful validation. To remove commands previously managed by this project, run `wisp commands sync --prune --yes`. Remote commands outside the local ownership ledger are preserved. A remote command with a colliding name causes sync to stop.
 
 Slow interactions are acknowledged automatically. A reply keeps the visibility requested by its `ephemeral` value, even if the automatic acknowledgment used a different visibility. Gateway events run with up to 32 handlers at once; another 256 events wait in order. Further events are dropped with a warning when that queue is full. Queued events are discarded during shutdown.
+
+## Discord API access
+
+Wisp 0.0.4 accepts all 21 Gateway intents supported by its Discord API version. Add only the intents your bot needs to `discord.intents` in `wisp.json`. `guild_members`, `guild_presences`, and `message_content` are privileged and may require enabling or approval in the Discord Developer Portal.
+
+Use `discord.request(method, path, body = null, query = null, reason = null, files = null)` for bot REST endpoints. The path starts after `/api/v10`, and Wisp uses the existing Discord client for rate limits. `files` is an optional list of paths inside the project for multipart uploads. For example:
+
+```wisp
+command "hello":
+    description "Send a message to this channel"
+    execute:
+        let message = discord.request("POST", "/channels/{interaction.channelId}/messages", {content: "Hello!"})
+        reply "Sent message {message.id}"
+```
+
+Use `on gateway "DISPATCH_NAME"` to receive a raw Gateway dispatch. The handler reads `event.type`, `event.data`, and `event.sequence`:
+
+```wisp
+on gateway "MESSAGE_REACTION_ADD":
+    log.info(event.data.message_id)
+```
+
+`discord.gateway(opcode, data, shardId = 0)` sends one of Discord's bot initiated Gateway opcodes: 3 (presence), 4 (voice state), 8 (member request), 31 (soundboard request), or 43 (channel info request). The bot must be connected to that shard. discord.js retains control of identify, resume, and heartbeats.
+
+The REST bridge supports JSON request and response bodies up to 1 MiB and at most 10 upload files of up to 25 MiB each. Voice media transport, OAuth bearer-token routes, and first-class interaction types outside Wisp's slash command and component handlers still need dedicated support. Raw interaction dispatches and callbacks can be handled through the general bridges. Discord limits each endpoint by bot permissions, installation context, intents, and API availability.
 
 ## Architecture
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.4 - 2026-10-23
+
+- Added a bot REST bridge with JSON and project-file uploads for Discord API routes, plus raw Gateway dispatch handlers.
+- Added configuration for all 21 Gateway intents supported by the installed Discord API types.
+- Added guarded outbound bot Gateway event support for opcodes 3, 4, 8, 31, and 43.
+- Updated editor completion, manifest schema, and new project templates for 0.0.4.
+
+
 ## 0.0.3 - 2026-10-23
 
 - Added namespaced local Wisp modules with explicit exports, circular-import detection, and root path protection.

@@ -10,11 +10,11 @@
     "name":{"type":"string","minLength":1,"description":"Project display name."},
     "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$","description":"Project version in major.minor.patch form."},
     "entry":{"type":"string","minLength":1,"description":"Entrypoint .wisp file relative to the project root."},
-    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4"],"description":"Compatible Wisp runtime. Existing 0.0.2 projects remain accepted."},
+    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4",">=0.0.4 <0.0.5"],"description":"Compatible Wisp runtime. Existing 0.0.2 and 0.0.3 projects remain accepted."},
     "discord":{"type":"object","additionalProperties":false,"required":["application_id","token","intents","commands"],"properties":{
       "application_id":{"type":"string","minLength":1,"description":"Discord application ID; use ${DISCORD_APPLICATION_ID}."},
       "token":{"type":"string","minLength":1,"description":"Bot token; use ${DISCORD_TOKEN}, never a committed literal."},
-      "intents":{"type":"array","items":{"enum":["guilds","guild_members","guild_messages","message_content"]},"description":"Gateway intents requested at startup."},
+      "intents":{"type":"array","items":{"enum":["guilds","guild_members","guild_moderation","guild_expressions","guild_integrations","guild_webhooks","guild_invites","guild_voice_states","guild_presences","guild_messages","guild_message_reactions","guild_message_typing","direct_messages","direct_message_reactions","direct_message_typing","message_content","guild_scheduled_events","auto_moderation_configuration","auto_moderation_execution","guild_message_polls","direct_message_polls"]},"description":"Gateway intents requested at startup. Privileged intents also require Developer Portal approval."},
       "commands":{"type":"object","additionalProperties":false,"required":["directory","scope"],"properties":{
         "directory":{"type":"string","minLength":1,"description":"Command scripts directory."},
         "scope":{"enum":["guild","global"],"description":"Slash command registration scope."},
