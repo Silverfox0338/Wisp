@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.6
+
+- Added computed component lists and `ui.rows(...)` to `reply:`, with embeds and buttons in one response.
+- Added prefix wildcard button handlers and `interaction.index` for numbered choices.
+- Allowed multiline list and map literals, including trailing commas.
+- Added `elif` and missing map field fallback with `??`.
+- Allowed imported helper functions to reply to their caller's interaction.
+- Allowed computed delays in `after` and `every` tasks.
+- Replaced SVG repository and editor icons with PNG assets.
+
 ## 0.0.5
 
 - Added visual HTML and JSON execution trees for commands in `wisp dev` and offline tests with `wisp test --trace`.

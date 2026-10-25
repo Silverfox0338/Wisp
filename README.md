@@ -24,7 +24,7 @@ Write slash commands and event handlers in `.wisp` files, then run them with the
 - Store bot data locally with SQLite and reload scripts while developing.
 - Get syntax highlighting, diagnostics, and completion from the VS Code extension.
 
-Current version: **0.0.5**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
+Current source version: **0.0.6**. Project settings live in `wisp.json`. The TypeScript runtime uses `discord.js` for Discord operations and Node's built-in SQLite module for local persistence.
 
 ## Mascots
 
@@ -113,7 +113,7 @@ Slow interactions are acknowledged automatically. A reply keeps the visibility r
 
 ## Discord API access
 
-Wisp 0.0.5 accepts all 21 Gateway intents supported by its Discord API version. Add only the intents your bot needs to `discord.intents` in `wisp.json`. `guild_members`, `guild_presences`, and `message_content` are privileged and may require enabling or approval in the Discord Developer Portal.
+Wisp accepts all 21 Gateway intents supported by its Discord API version. Add only the intents your bot needs to `discord.intents` in `wisp.json`. `guild_members`, `guild_presences`, and `message_content` are privileged and may require enabling or approval in the Discord Developer Portal.
 
 Use `discord.request(method, path, body = null, query = null, reason = null, files = null)` for bot REST endpoints. The path starts after `/api/v10`, and Wisp uses the existing Discord client for rate limits. `files` is an optional list of paths inside the project for multipart uploads. For example:
 
@@ -156,6 +156,8 @@ command "lunch":
 Every HTTP route in the local Discord reference snapshot dated October 24, 2026 has a named helper in a group such as `discord.emojis`, `discord.stickers`, `discord.webhooks`, `discord.soundboard`, `discord.guilds`, or `discord.users`. The source ZIP stays local and ignored by Git; the generated [HTTP helper index](DISCORD_HTTP_API.md) lists the 213 names and routes. The short calls above remain the easiest way to handle common bot tasks. OAuth2-only routes, voice media, SDK APIs, RPC, and webhook event receivers need credentials or protocols beyond the bot REST client.
 
 Buttons and select menus now persist by default while their Discord message exists. Add `expires: 300` in a button or select block to expire its Wisp state after five minutes; `expires: 0` explicitly means no expiry. State is stored in SQLite, and clicks continue to reach the matching `on button` or select handler after a bot restart when the database and handler are still present. Existing controls keep their original expiration. See [interactive components](docs/components.md).
+
+In the 0.0.6 source, `reply:` accepts a computed `components` list or `ui.rows(...)`, and an `embed` can appear in the same reply. `on button "pick_*"` handles any button with that prefix and exposes a numeric suffix as `interaction.index`. Lists and maps may span lines, `elif` is supported, `map.field ?? fallback` handles a missing field, and `after`/`every` accept computed delays.
 
 Discord REST failures explain common permission, hierarchy, argument, and rate-limit problems. They expose `error.status` (HTTP number) and `error.code` (Discord API number) inside `catch`; `error.wispCode` contains Wisp's diagnostic code, such as `DISCORD005`.
 

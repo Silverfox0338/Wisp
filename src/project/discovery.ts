@@ -9,6 +9,18 @@ import type {ProjectConfig} from './manifest.js';
 import {compileModules} from './modules.js';
 import {verifyPackages} from './packages.js';
 export interface CompiledProject {commands:CommandDecl[];events:EventDecl[];modules?:Map<string,Module>}
+export function findComponentHandler(events:EventDecl[],kind:string,name:string):EventDecl|undefined{
+  const exact=events.find(event=>event.name===`${kind}:${name}`);if(exact)return exact;
+  if(kind!=='button')return undefined;
+  return events.filter(event=>event.name.startsWith('button:')&&event.name.endsWith('*')&&name.startsWith(event.name.slice(7,-1))).sort((a,b)=>b.name.length-a.name.length)[0];
+}
+export function componentIndex(handler:EventDecl,name:string):number|null{
+  if(!handler.name.startsWith('button:')||!handler.name.endsWith('*'))return null;
+  const suffix=name.slice(handler.name.slice(7,-1).length);
+  if(!/^\d+$/.test(suffix))return null;
+  const index=Number(suffix);
+  return Number.isSafeInteger(index)?index:null;
+}
 function scripts(root:string,dir:string):string[]{return readdirSync(dir,{withFileTypes:true}).filter(x=>x.name.endsWith('.wisp')&&!x.name.startsWith('.')).map(x=>{const path=join(dir,x.name),real=realpathSync(path),rel=relative(root,real);if(rel.startsWith('..')||isAbsolute(rel)||!x.isFile())throw new WispError('MANIFEST003',`Script escapes project: ${x.name}`);return path;}).sort();}
 function source(path:string):string{if(statSync(path).size>1024*1024)throw new WispError('PARSE002','Source file exceeds 1 MiB limit',path);try{return new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));}catch{throw new WispError('PARSE002','Source file must be valid UTF-8',path);}}
 export function discover(project:ProjectConfig,checkIntents=true):CompiledProject{verifyPackages(project);const commands:CommandDecl[]=[],events:EventDecl[]=[],moduleSources:{file:string;statements:Stmt[]}[]=[];const entry=parse(source(project.paths.entry),project.paths.entry);const prelude=(statements:typeof entry.statements,path:string)=>{if(statements.some(s=>!['function','let','global','import'].includes(s.kind)))throw new WispError('COMMAND001','Only imports, functions, and variable declarations may be top-level setup',path);moduleSources.push({file:path,statements});return statements;};if(entry.commands.length)throw new WispError('COMMAND001','Entrypoint may not contain commands',project.paths.entry);for(const e of entry.events)e.body=[...prelude(entry.statements,project.paths.entry),...e.body];if(!entry.events.length)prelude(entry.statements,project.paths.entry);events.push(...entry.events);

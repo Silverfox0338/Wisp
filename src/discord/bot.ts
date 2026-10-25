@@ -1,10 +1,10 @@
 import {Client,GatewayIntentBits,GuildMember,type PartialGuildMember,type User,type Message,type ChatInputCommandInteraction,type ButtonInteraction,type StringSelectMenuInteraction,type UserSelectMenuInteraction,type RoleSelectMenuInteraction,type ChannelSelectMenuInteraction,type ModalSubmitInteraction} from 'discord.js';
 import {watch,type FSWatcher} from 'node:fs';
-import type {CompiledProject} from '../project/discovery.js';
+import {componentIndex,findComponentHandler,type CompiledProject} from '../project/discovery.js';
 import type {ProjectConfig} from '../project/manifest.js';
 import {ReloadableProject} from '../project/reload.js';
 import {moduleResolver} from '../project/modules.js';
-import {execute,host,record,type Value} from '../runtime/interpreter.js';
+import {execute,host,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
 import {jsonApi,mathApi,storageApi,timeApi} from '../runtime/stdlib.js';
 import {Storage} from '../storage/sqlite.js';
 import {Scheduler} from '../runtime/scheduler.js';
@@ -78,7 +78,7 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
         defer:host(async(ephemeral=true)=>{await response.defer(ephemeral!==false);return null;}),
         followUp:host(async(content,ephemeral=false)=>{if(typeof content!=='string')throw new WispError('RUNTIME002','followUp text must be string');await response.followUp({content,ephemeral:ephemeral===true});return null;})
       }) as Value;
-      const started=Date.now(),trace=dev?new ExecutionTrace(`/${command.name}`):undefined;const values={...common(command.name),interaction:interactionValue,options:record(optionValues) as Value,guild:guildValue,ui:uiApi(components,modal=>response.showModal(components.buildModal(modal)))};try{await execute(command.execute,{values,file:command.file,reply:body=>response.send({...body,components:body.components?.length?components.buildRows(body.components):undefined}),showModal:modal=>response.showModal(components.buildModal(modal)),schedule:schedule(command.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});}finally{if(trace)log('info',`Trace for /${command.name}: ${writeTrace(project.root,trace).html}`);}
+      const started=Date.now(),trace=dev?new ExecutionTrace(`/${command.name}`):undefined;const values={...common(command.name),interaction:interactionValue,options:record(optionValues) as Value,guild:guildValue,ui:uiApi(components,modal=>response.showModal(components.buildModal(modal)))};const reply:NonNullable<ExecutionContext['reply']>=body=>response.send({...body,components:body.rawComponents?body.rawComponents as unknown as ReturnType<ComponentRegistry['buildRows']>:body.components?.length?components.buildRows(body.components):undefined});try{await execute(command.execute,{values,file:command.file,reply,showModal:modal=>response.showModal(components.buildModal(modal)),schedule:schedule(command.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values,reply}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});}finally{if(trace)log('info',`Trace for /${command.name}: ${writeTrace(project.root,trace).html}`);}
       await response.finish();log('debug',`Command /${command.name} completed in ${Date.now()-started} ms`);
     }catch(error){const incident=Math.random().toString(36).slice(2,10);log('error',`${command?.file??'<registry>'}: Incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Command failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Command failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not send incident ${incident}`);}}finally{response.close();}}
   type ComponentInteraction=ButtonInteraction|StringSelectMenuInteraction|UserSelectMenuInteraction|RoleSelectMenuInteraction|ChannelSelectMenuInteraction|ModalSubmitInteraction;
@@ -89,14 +89,14 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
       if(interaction.applicationId!==project.manifest.discord.application_id)throw new WispError('COMPONENT002','Application mismatch');
       const components=new ComponentRegistry(storage,interaction.guildId??'',interaction.user.id);
       const state=components.resolve(interaction.customId,kind,interaction.guildId,interaction.user.id);
-      const handler=registry.value.events.find(event=>event.name===`${kind}:${state.name}`);
+      const handler=findComponentHandler(registry.value.events,kind,state.name);
       if(!handler)throw new WispError('COMPONENT002','This component handler is no longer available');
       const values=interaction.isStringSelectMenu()||interaction.isUserSelectMenu()||interaction.isRoleSelectMenu()||interaction.isChannelSelectMenu()?interaction.values:[];
       const inputFields:Record<string,Value>=Object.create(null);
       if(interaction.isModalSubmit())for(const field of interaction.fields.fields.values())if('value' in field&&typeof field.value==='string')inputFields[field.customId]=field.value;
-      const interactionValue=record({user:userValue(interaction.user),guildId:interaction.guildId,channelId:interaction.channelId,kind,name:state.name,values,fields:record(inputFields),state:record(state.state)}) as Value;
+      const interactionValue=record({user:userValue(interaction.user),guildId:interaction.guildId,channelId:interaction.channelId,kind,name:state.name,index:componentIndex(handler,state.name),values,fields:record(inputFields),state:record(state.state)}) as Value;
       const handlerValues={...common(`component:${state.name}`),interaction:interactionValue,ui:uiApi(components,modal=>response.showModal(components.buildModal(modal)))};
-      await execute(handler.body,{values:handlerValues,file:handler.file,reply:body=>response.send({...body,components:body.components?.length?components.buildRows(body.components):undefined}),showModal:modal=>response.showModal(components.buildModal(modal)),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:handlerValues}),timeoutMs:15000,maxSteps:10000,maxLoops:10000});
+      const reply:NonNullable<ExecutionContext['reply']>=body=>response.send({...body,components:body.rawComponents?body.rawComponents as unknown as ReturnType<ComponentRegistry['buildRows']>:body.components?.length?components.buildRows(body.components):undefined});await execute(handler.body,{values:handlerValues,file:handler.file,reply,showModal:modal=>response.showModal(components.buildModal(modal)),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:handlerValues,reply}),timeoutMs:15000,maxSteps:10000,maxLoops:10000});
       await response.finish();
     }catch(error){const incident=Math.random().toString(36).slice(2,10);log('error',`Component incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Interaction failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Interaction unavailable or failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not acknowledge component incident ${incident}`);}}finally{response.close();}
   }

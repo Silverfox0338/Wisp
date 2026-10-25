@@ -18,7 +18,7 @@ export type Stmt =
   | {kind:'try'; body:Stmt[]; errorName:string; catchBody:Stmt[]; catchLine:number; line:number; column:number}
   | {kind:'raise'; expr:Expr; line:number; column:number}
   | {kind:'import'; source:string; alias:string; line:number; column:number}
-  | {kind:'schedule'; name:string; seconds:number; repeat:boolean; body:Stmt[]; line:number; column:number}
+  | {kind:'schedule'; name:string; seconds:Expr; repeat:boolean; body:Stmt[]; line:number; column:number}
   | {kind:'show_modal'; component:ComponentDecl; line:number; column:number}
   | {kind:'return'; expr?:Expr; line:number; column:number}
   | {kind:'reply'; expr?:Expr; embed?:Record<string,Expr>; layout?:{fields:Record<string,Expr>;components:ComponentDecl[]}; ephemeral?:Expr; line:number; column:number}
