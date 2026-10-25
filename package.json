@@ -35,7 +35,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "bin": {
-    "wisp": "./dist/cli/index.js"
+    "wisp": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
