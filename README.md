@@ -53,7 +53,7 @@ wisp run
 
 - Slash commands with typed options, permissions, embeds, and replies.
 - Event handlers for members, messages, buttons, selects, and modals.
-- Discord REST calls through short helpers or named routes in the [HTTP helper index](DISCORD_HTTP_API.md).
+- Discord REST calls through short helpers or named routes.
 - Local data with SQLite, reusable Wisp modules, and scheduled tasks.
 - Offline tests with mock Discord responses and execution traces.
 

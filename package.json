@@ -21,14 +21,13 @@
     "dist/diagnostics.js",
     "dist/version.js",
     "src",
-    "scripts/prepare-package.mjs",
+    "prepare-package.mjs",
     "tsconfig.json",
     "eslint.config.js",
     "LICENSE",
     "NOTICE.md",
     "README.md",
-    "CHANGELOG.md",
-    "DISCORD_HTTP_API.md"
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public",
@@ -39,7 +38,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepack": "node scripts/prepare-package.mjs",
+    "prepack": "node prepare-package.mjs",
     "prepublishOnly": "npm run lint && npm test",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "check": "tsc --noEmit -p tsconfig.json",
