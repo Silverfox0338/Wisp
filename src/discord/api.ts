@@ -36,8 +36,10 @@ function messageOptions(value:Value):Value {
 }
 
 function textOptions(content:Value,settings:Value):Value {
-  if(typeof content!=='string')throw new WispError('DISCORD005','Message content must be a string');
-  return {...options(settings,'Message options') as Record<string,Value>,content};
+  const extra=options(settings,'Message options') as Record<string,Value>;
+  if(typeof content==='string')return {...extra,content};
+  if(content===null||typeof content!=='object'||Array.isArray(content))throw new WispError('DISCORD005','Message content must be a string or V2 message map');
+  return {...options(content,'Message payload') as Record<string,Value>,...extra};
 }
 
 function permissionOverwrite(value:Value):Value {

@@ -13,6 +13,16 @@ export function tokenize(source:string, file='<source>'):Token[] {
       if(prefix.length>current) { if(prefix.length-current!==4) throw new WispError('PARSE001','Indent one level (four spaces) at a time',file,li+1,1); indents.push(prefix.length); tokens.push({type:'INDENT',value:'',line:li+1,column:1}); }
       else if(prefix.length<current) { while(indents.length>1 && prefix.length<indents[indents.length-1]!) {indents.pop();tokens.push({type:'DEDENT',value:'',line:li+1,column:1});} if(prefix.length!==indents[indents.length-1]) throw new WispError('PARSE001','Inconsistent dedent',file,li+1,1); }
     }
+    if(/^markdown:\s*$/.test(line.slice(prefix.length))){
+      const base=prefix.length;let end=li+1;
+      while(end<lines.length){const next=lines[end]!;if(!next.trim()){end++;continue;}const indent=next.match(/^ */)?.[0].length??0;if(indent<=base)break;end++;}
+      if(end>li+1&&lines.slice(li+1,end).some(next=>next.trim())){
+        const content=lines.slice(li+1,end);const first=content.find(next=>next.trim())!;const margin=first.match(/^ */)![0].length;
+        if(margin!==base+4||content.some(next=>next.trim()&&(next.match(/^ */)?.[0].length??0)<margin))throw new WispError('PARSE001','Markdown block must indent one level',file,li+2,1);
+        tokens.push({type:'IDENT',value:'markdown',line:li+1,column:base+1},{type:':',value:':',line:li+1,column:base+9},{type:'NEWLINE',value:'',line:li+1,column:line.length+1},{type:'INDENT',value:'',line:li+2,column:1},{type:'RAW_TEXT',value:content.map(next=>next.trim()?next.slice(margin):'').join('\n').trimEnd(),line:li+2,column:margin+1},{type:'NEWLINE',value:'',line:end,column:1},{type:'DEDENT',value:'',line:end,column:1});
+        li=end-1;continue;
+      }
+    }
     for(let i=prefix.length;i<line.length;) {
       const c=line[i]!; if(c===' '){i++;continue;} if(c==='#') break;
       const col=i+1;

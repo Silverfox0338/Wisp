@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.7
+
+- Added declarative `reply v2:` layouts with containers, explicit `markdown:` text blocks, sections, thumbnails, separators, and persistent button or select rows.
+- Added declarative classic embeds and rows under `reply:` by default, with `reply v1:` as an optional explicit form. Markdown blocks preserve `#` headings while ordinary Wisp lines retain `#` comments.
+- Added Discord Components V2 cards with `ui.embed2(...)`, plus text, section, thumbnail, gallery, file, separator, and container builders for computed layouts.
+- Added `reply: v2:` for interaction responses and support for V2 payloads in `discord.send`, `discord.editMessage`, and `discord.messages.send/edit`.
+- Validated V2 payloads, component counts, color and media values, and the separation between V2 layouts and traditional content or embeds.
+- Updated project templates and runtime compatibility for 0.0.7.
+
 ## 0.0.6
 
 - Added computed component lists and `ui.rows(...)` to `reply:`, with embeds and buttons in one response.

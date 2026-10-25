@@ -64,4 +64,10 @@ test('the installed grammar scopes real Wisp constructs', async () => {
   hasScope('        let parts = text.split(",")', 'split', 'support.function.builtin');
   hasScope('        let data = json.parse(text)', 'json', 'support.class.discord');
   hasScope('        for index in range(5):', 'range', 'support.function.builtin');
+  const block = loaded.tokenizeLine('        markdown:', null);
+  const markdown = loaded.tokenizeLine('            ## Your Profile', block.ruleStack);
+  assert.ok(markdown.tokens.some(token => token.scopes.some(scope => scope.startsWith('string.unquoted.block'))));
+  assert.ok(markdown.tokens.every(token => !token.scopes.some(scope => scope.startsWith('comment.line'))));
+  const next = loaded.tokenizeLine('        separator', markdown.ruleStack);
+  assert.ok(next.tokens.some(token => token.scopes.some(scope => scope.startsWith('keyword.control'))));
 });

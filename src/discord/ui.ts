@@ -1,6 +1,7 @@
 import {WispError} from '../diagnostics.js';
 import {host,record,type RuntimeComponent,type Value} from '../runtime/interpreter.js';
 import type {ComponentRegistry} from './components.js';
+import {container,embed2,fileDisplay,gallery,section,separator,textDisplay,thumbnail,v2Payload} from './v2.js';
 
 function map(value:Value,label:string):Record<string,Value>{if(!value||typeof value!=='object'||Array.isArray(value)||'call' in value)throw new WispError('COMPONENT001',`${label} must be a map`);return value as Record<string,Value>;}
 function name(value:Value):string{if(typeof value!=='string'||!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(value))throw new WispError('COMPONENT001','Component name must use letters, digits, _ or -');return value;}
@@ -17,6 +18,15 @@ export function uiApi(registry:ComponentRegistry,showModal?:(modal:RuntimeCompon
       return {kind:'modal',name:name(key),fields:{...map(settings,'Modal settings'),title},inputs:inputs.map(input=>{const item=map(input,'Modal input');return {name:name(item.name as Value),fields:Object.fromEntries(Object.entries(item).filter(([field])=>field!=='name'))};})};
     }),
     embed:host((title,description,settings={})=>{if(typeof title!=='string'||typeof description!=='string')throw new WispError('COMPONENT001','Embed title and description must be strings');return {title,description,...map(settings,'Embed settings')};}),
+    embed2:host((title,description,settings={})=>embed2(title,description,settings)),
+    text:host(content=>textDisplay(content)),
+    thumbnail:host((url,description)=>thumbnail(url,description)),
+    section:host((lines,accessory)=>{const item=map(accessory,'Section accessory');if(item.kind==='button'){const row=registry.buildRows([component(accessory)])[0]!.toJSON();return section(lines,row.components[0] as unknown as Value);}return section(lines,accessory);}),
+    gallery:host(items=>gallery(items)),
+    file:host((path,spoiler=false)=>fileDisplay(path,spoiler)),
+    separator:host((spacing='small',divider=true)=>separator(spacing,divider)),
+    container:host((items,settings={})=>container(items,settings)),
+    v2:host(items=>v2Payload(items)),
     rows:host((items)=>{if(!Array.isArray(items))throw new WispError('COMPONENT001','UI rows require a list of components');return registry.buildRows(items.map(component)).map(row=>row.toJSON()) as unknown as Value;}),
     showModal:host(async(item)=>{if(!showModal)throw new WispError('COMPONENT001','Modal cannot be shown here');await showModal(component(item));return null;})
   }) as Value;
