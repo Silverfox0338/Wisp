@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/wisp.svg" width="96" alt="Wisp logo" />
+<img src="assets/wisp.png" width="96" alt="Wisp logo" />
 
 # Wisp
 
@@ -30,9 +30,9 @@ Current version: **0.0.5**. Project settings live in `wisp.json`. The TypeScript
 
 | Icon | Role |
 | --- | --- |
-| <img src="assets/wisp.svg" width="40" alt="Blue Wisp" /> | Wisp logo, commands, and other `.wisp` files |
-| <img src="assets/wisp-event.svg" width="40" alt="Red Wisp" /> | Events and listeners in `events/` |
-| <img src="assets/wisp-module.svg" width="40" alt="Green Wisp" /> | Reusable code in `modules/`, `helpers/`, or `utils/` |
+| <img src="assets/wisp.png" width="40" alt="Blue Wisp" /> | Wisp logo, commands, and other `.wisp` files |
+| <img src="assets/wisp-event.png" width="40" alt="Red Wisp" /> | Events and listeners in `events/` |
+| <img src="assets/wisp-module.png" width="40" alt="Green Wisp" /> | Reusable code in `modules/`, `helpers/`, or `utils/` |
 
 The optional Wisp Icons theme in the VS Code extension uses these colors for `.wisp` files in those folders.
 

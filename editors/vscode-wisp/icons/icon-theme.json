@@ -1,10 +1,10 @@
 {
   "iconDefinitions": {
-    "file-default": {"iconPath": "./file.svg"},
-    "folder-default": {"iconPath": "./folder.svg"},
-    "wisp-file": {"iconPath": "./wisp.svg"},
-    "wisp-event": {"iconPath": "./wisp-event.svg"},
-    "wisp-module": {"iconPath": "./wisp-module.svg"}
+    "file-default": {"iconPath": "./file.png"},
+    "folder-default": {"iconPath": "./folder.png"},
+    "wisp-file": {"iconPath": "./wisp.png"},
+    "wisp-event": {"iconPath": "./wisp-event.png"},
+    "wisp-module": {"iconPath": "./wisp-module.png"}
   },
   "file": "file-default",
   "folder": "folder-default",
