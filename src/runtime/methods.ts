@@ -1,5 +1,5 @@
 import {WispError} from '../diagnostics.js';
-import {host,record,type Value} from './interpreter.js';
+import {host,isHost,record,type Value} from './interpreter.js';
 
 const fail=(message:string):never=>{throw new WispError('RUNTIME002',message);};
 const num=(value:Value,label:string):number=>typeof value==='number'&&Number.isFinite(value)?value:fail(`${label} must be a finite number`);
@@ -30,7 +30,7 @@ export function valueMethod(value:Value,name:string,invoke:(fn:Value,args:Value[
       substring:host((start,end=null)=>sized(value.slice(integer(start,'start'),end===null?undefined:integer(end,'end')))),
       pad_start:host((length,fill=' ')=>sized(value.padStart(padLength(length),str(fill,'fill')))),
       pad_end:host((length,fill=' ')=>sized(value.padEnd(padLength(length),str(fill,'fill')))),
-      format:host((...args)=>sized(value.replace(/%%|%([1-9]\d*)/g,(match,index:string)=>{if(match==='%%')return '%';const item=args[Number(index)-1];if(item===undefined)fail(`Missing format argument ${index}`);return item===null?'null':typeof item==='object'?'[object]':String(item);}))),
+      format:host((...args)=>{let total=value.length;return sized(value.replace(/%%|%([1-9]\d*)/g,(match,index:string)=>{if(match==='%%')return '%';const item=args[Number(index)-1];if(item===undefined)fail(`Missing format argument ${index}`);const text=item===null?'null':typeof item==='object'?'[object]':String(item);total+=text.length;if(total>65536)fail('Formatted string exceeds 64 KiB');return text;}));}),
       regex_match:host((pattern,flags='')=>regex(pattern,flags).test(regexInput(value))),
       regex_replace:host((pattern,replacement,flags='')=>{const expression=regex(pattern,flags),text=str(replacement,'replacement');if(text.length>1024)fail('Regex replacement exceeds 1024 characters');return sized(regexInput(value).replace(new RegExp(expression.source,expression.flags.includes('g')?expression.flags:expression.flags+'g'),text));})
     };
@@ -59,7 +59,7 @@ export function valueMethod(value:Value,name:string,invoke:(fn:Value,args:Value[
     if(name==='length')return value.length;
     return methods[name];
   }
-  if(value&&typeof value==='object'&&!('call' in value)){
+  if(value&&typeof value==='object'&&!isHost(value)){
     const map=value as Record<string,Value>,keys=()=>Object.keys(map);
     const methods:Record<string,Value>={
       keys:host(()=>listed(keys())),values:host(()=>listed(keys().map(key=>map[key]!))),entries:host(()=>listed(keys().map(key=>entry(key,map[key]!)))),

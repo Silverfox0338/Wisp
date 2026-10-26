@@ -54,7 +54,7 @@ reply:
     assert.equal(body?.components?.length,3);
     assert.deepEqual(body?.components?.map(button=>button.name),['pick_0','pick_1','pick_2']);
     assert.equal(body?.embed?.title,'The Old Well');
-    registry.buildRows(body!.components!);
+    await registry.buildRows(body!.components!);
     const rowsSource='reply:\n    content: "Rows"\n    components: ui.rows([ui.button("pick_0", "Down")])\n';
     await execute(parse(rowsSource).statements,{values,reply:async value=>{assert.equal(value.rawComponents?.length,1);}});
     db.close();

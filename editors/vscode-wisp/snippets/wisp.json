@@ -1,15 +1,220 @@
 {
-  "Command":{"prefix":"command","body":["command \"${1:name}\":","    description \"${2:Description}\"","    execute:","        reply \"${3:Hello!}\""],"description":"Slash command"},
-  "Option":{"prefix":"option","body":["option ${1:name}:","    type: ${2:user}","    description: \"${3:Option description}\"","    required: false"],"description":"Slash command option"},
-  "Event":{"prefix":"on","body":["on ${1:member_join}:","    ${2:log.info(\"Event received\")}"],"description":"Event handler"},
-  "Button":{"prefix":"button","body":["button \"${1:confirm}\":","    label: \"${2:Confirm}\"","    style: \"${3:success}\"","    owner: \"user\""],"description":"Interactive button"},
-  "String select":{"prefix":"select","body":["select \"${1:choice}\":","    placeholder: \"${2:Choose}\"","    choice \"${3:value}\":","        label: \"${4:Label}\""],"description":"String select menu"},
-  "Modal":{"prefix":"show modal","body":["show modal \"${1:feedback}\":","    title: \"${2:Feedback}\"","    input \"${3:message}\":","        label: \"${4:Message}\"","        style: \"paragraph\""],"description":"Modal dialog"},
-  "Import":{"prefix":"import","body":["import \"${1:utils/formatting.wisp}\""],"description":"Local Wisp module"},
-  "Schedule":{"prefix":"every","body":["every \"${1:heartbeat}\" ${2:60} seconds:","    ${3:log.info(\"Running\")}"],"description":"Recurring task"},
-  "Try catch":{"prefix":"try","body":["try:","    ${1:raise \"Something went wrong\"}","catch ${2:error}:","    log.warn(${2:error}.message)"],"description":"Handle a Wisp error"},
-  "Function with default":{"prefix":"function","body":["function ${1:name}(${2:value}, ${3:fallback} = ${4:null}):","    return ${2:value} ?? ${3:fallback}"],"description":"Function with an optional parameter"},
-  "Range loop":{"prefix":"forrange","body":["for ${1:index} in range(${2:0}, ${3:10}):","    ${4:log.info(${1:index})}"],"description":"Loop over a bounded integer range"},
-  "Map entries":{"prefix":"forentries","body":["for ${1:entry} in ${2:items}:","    log.info(\"{${1:entry}.key}: {${1:entry}.value}\")"],"description":"Loop over map entries"},
-  "JSON parse":{"prefix":"jsonparse","body":["let ${1:data} = json.parse(${2:text})"],"description":"Parse JSON text"}
+  "Command": {
+    "prefix": "command",
+    "body": [
+      "command \"${1:name}\":",
+      "    description \"${2:Description}\"",
+      "    execute:",
+      "        reply \"${3:Hello!}\""
+    ],
+    "description": "Slash command"
+  },
+  "Option": {
+    "prefix": "option",
+    "body": [
+      "option ${1:name}:",
+      "    type: ${2:user}",
+      "    description: \"${3:Option description}\"",
+      "    required: false"
+    ],
+    "description": "Slash command option"
+  },
+  "Subcommand": {
+    "prefix": "subcommand",
+    "body": [
+      "subcommand \"${1:name}\":",
+      "    description \"${2:Description}\"",
+      "    execute:",
+      "        reply \"${3:Done!}\""
+    ],
+    "description": "Slash subcommand, such as /config set"
+  },
+  "Subcommand group": {
+    "prefix": "group",
+    "body": [
+      "group \"${1:name}\":",
+      "    description \"${2:Description}\"",
+      "    subcommand \"${3:name}\":",
+      "        description \"${4:Description}\"",
+      "        execute:",
+      "            reply \"${5:Done!}\""
+    ],
+    "description": "Group of subcommands, such as /config roles add"
+  },
+  "Suggest": {
+    "prefix": "suggest",
+    "body": [
+      "suggest:",
+      "    let found = []",
+      "    for item in [${1:\"red\", \"green\", \"blue\"}]:",
+      "        if item.contains(typed):",
+      "            found.append(item)",
+      "    return found"
+    ],
+    "description": "Live autocomplete suggestions for a string or number option"
+  },
+  "User command": {
+    "prefix": "usercmd",
+    "body": [
+      "user command \"${1:Name}\":",
+      "    execute:",
+      "        reply \"${2:Picked {target.name}}\""
+    ],
+    "description": "Right-click user context menu command"
+  },
+  "Message command": {
+    "prefix": "msgcmd",
+    "body": [
+      "message command \"${1:Name}\":",
+      "    execute:",
+      "        reply \"${2:> {target.content}}\""
+    ],
+    "description": "Right-click message context menu command"
+  },
+  "Cooldown": {
+    "prefix": "cooldown",
+    "body": [
+      "cooldown: ${1:10} ${2|seconds,minutes,hours,days|} per ${3|user,guild,channel|}"
+    ],
+    "description": "Limit how often a command can be used"
+  },
+  "Event": {
+    "prefix": "on",
+    "body": [
+      "on ${1:member_join}:",
+      "    ${2:log.info(\"Event received\")}"
+    ],
+    "description": "Event handler"
+  },
+  "Button": {
+    "prefix": "button",
+    "body": [
+      "button \"${1:confirm}\":",
+      "    label: \"${2:Confirm}\"",
+      "    style: \"${3:success}\"",
+      "    owner: \"user\""
+    ],
+    "description": "Interactive button"
+  },
+  "String select": {
+    "prefix": "select",
+    "body": [
+      "select \"${1:choice}\":",
+      "    placeholder: \"${2:Choose}\"",
+      "    choice \"${3:value}\":",
+      "        label: \"${4:Label}\""
+    ],
+    "description": "String select menu"
+  },
+  "Modal": {
+    "prefix": "show modal",
+    "body": [
+      "show modal \"${1:feedback}\":",
+      "    title: \"${2:Feedback}\"",
+      "    input \"${3:message}\":",
+      "        label: \"${4:Message}\"",
+      "        style: \"paragraph\""
+    ],
+    "description": "Modal dialog"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": [
+      "import \"${1:utils/formatting.wisp}\""
+    ],
+    "description": "Local Wisp module"
+  },
+  "Schedule": {
+    "prefix": "every",
+    "body": [
+      "every \"${1:heartbeat}\" ${2:60} seconds:",
+      "    ${3:log.info(\"Running\")}"
+    ],
+    "description": "Recurring task"
+  },
+  "Reminder": {
+    "prefix": "remind",
+    "body": [
+      "after \"${1:remind}-{interaction.user.id}\" ${2:600} seconds with {\"channel\": interaction.channelId, \"user\": interaction.user.id}:",
+      "    discord.send(task.data.channel, \"<@{task.data.user}> ${3:reminder!}\")"
+    ],
+    "description": "One-shot timer that survives restarts, with data for the task"
+  },
+  "Try catch": {
+    "prefix": "try",
+    "body": [
+      "try:",
+      "    ${1:raise \"Something went wrong\"}",
+      "catch ${2:error}:",
+      "    log.warn(${2:error}.message)"
+    ],
+    "description": "Handle a Wisp error"
+  },
+  "Function with default": {
+    "prefix": "function",
+    "body": [
+      "function ${1:name}(${2:value}, ${3:fallback} = ${4:null}):",
+      "    return ${2:value} ?? ${3:fallback}"
+    ],
+    "description": "Function with an optional parameter"
+  },
+  "Range loop": {
+    "prefix": "forrange",
+    "body": [
+      "for ${1:index} in range(${2:0}, ${3:10}):",
+      "    ${4:log.info(${1:index})}"
+    ],
+    "description": "Loop over a bounded integer range"
+  },
+  "Map entries": {
+    "prefix": "forentries",
+    "body": [
+      "for ${1:entry} in ${2:items}:",
+      "    log.info(\"{${1:entry}.key}: {${1:entry}.value}\")"
+    ],
+    "description": "Loop over map entries"
+  },
+  "JSON parse": {
+    "prefix": "jsonparse",
+    "body": [
+      "let ${1:data} = json.parse(${2:text})"
+    ],
+    "description": "Parse JSON text"
+  },
+  "SQL query": {
+    "prefix": "dbsql",
+    "body": [
+      "let result = db.${1:main}.sql(\"SELECT * FROM ${2:items} WHERE id = ?\", [${3:id}])",
+      "let rows = result.rows"
+    ],
+    "description": "Query a named SQL database"
+  },
+  "Redis value": {
+    "prefix": "dbredis",
+    "body": [
+      "db.${1:cache}.set(\"${2:key}\", ${3:value})",
+      "let value = db.${1:cache}.get(\"${2:key}\")"
+    ],
+    "description": "Use a named Redis database"
+  },
+  "HTTP GET": {
+    "prefix": "httpget",
+    "body": [
+      "let ${1:response} = http.get(\"https://${2:api.example.com/path}\")",
+      "if ${1:response}.ok:",
+      "    reply \"${3:{${1:response}.json.name}}\"",
+      "else:",
+      "    reply \"Request failed ({${1:response}.status})\""
+    ],
+    "description": "Request an allowed host listed in http.allow"
+  },
+  "Named API call": {
+    "prefix": "apicall",
+    "body": [
+      "let ${1:response} = apis.${2:service}.get(\"/${3:path}\", {\"query\": {\"${4:q}\": ${5:value}}})",
+      "if ${1:response}.ok:",
+      "    reply \"${6:Done}\""
+    ],
+    "description": "Call a named API from http.apis; keys stay in wisp.json and .env"
+  }
 }

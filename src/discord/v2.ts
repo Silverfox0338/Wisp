@@ -1,10 +1,10 @@
 import {WispError} from '../diagnostics.js';
-import type {Value} from '../runtime/interpreter.js';
+import {isHost,type Value} from '../runtime/interpreter.js';
 
 export const V2_FLAG=32768;
 type Data=Record<string,Value>;
 function fail(message:string):never{throw new WispError('DISCORD005',message);}
-function object(value:Value|undefined,label:string):Data{if(!value||typeof value!=='object'||Array.isArray(value)||'call' in value)fail(`${label} must be a map`);return value as Data;}
+function object(value:Value|undefined,label:string):Data{if(!value||typeof value!=='object'||Array.isArray(value)||isHost(value))fail(`${label} must be a map`);return value as Data;}
 function only(data:Data,allowed:string[],label:string):void{for(const key of Object.keys(data))if(!allowed.includes(key))fail(`Unknown ${label} field ${key}`);}
 function string(value:Value|undefined,label:string,max:number):string{if(typeof value!=='string'||!value.trim()||value.length>max)fail(`${label} must be a nonempty string of at most ${max} characters`);return value;}
 function media(value:Value|undefined,label:string,attachmentOnly=false):string{const raw=string(value,label,2048);if(raw.startsWith('attachment://')&&raw.length>13&&!/[\\?#]/.test(raw.slice(13)))return raw;if(attachmentOnly)fail(`${label} must be an attachment:// filename`);try{const url=new URL(raw);if(url.protocol==='https:'||url.protocol==='http:')return raw;}catch{}return fail(`${label} must be an HTTP(S) URL or attachment:// filename`);}

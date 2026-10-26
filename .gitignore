@@ -16,7 +16,6 @@ examples/
 docs/
 *.vsix
 *.zip
-!discord-api-reference.zip
 *.docx
 .vscode/
 .vscode-test/
@@ -24,3 +23,5 @@ docs/
 Thumbs.db
 spec-extracted.txt
 discord-api-reference.zip
+scripts
+.claude

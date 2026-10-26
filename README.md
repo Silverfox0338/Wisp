@@ -23,7 +23,7 @@ command "ping":
         reply "Pong!"
 ```
 
-Wisp runs on Node.js 24.17 or newer. It uses `discord.js` to connect to Discord and SQLite to store bot data locally. The [VS Code extension](editors/vscode-wisp/README.md) provides highlighting, diagnostics, and completion for `.wisp` files.
+Wisp runs on Node.js 24.17 or newer. It uses `discord.js` to connect to Discord and stores bot data in SQLite by default. PostgreSQL, MySQL, and Redis are available as named external connections. The [VS Code extension](editors/vscode-wisp/README.md) provides highlighting, diagnostics, and completion for `.wisp` files.
 
 ## Get started
 
@@ -54,8 +54,84 @@ wisp run
 - Slash commands with typed options, permissions, embeds, and replies.
 - Event handlers for members, messages, buttons, selects, and modals.
 - Discord REST calls through short helpers or named routes.
-- Local data with SQLite, reusable Wisp modules, and scheduled tasks.
+- Local or external database storage, reusable Wisp modules, and scheduled tasks.
+- Calls to external HTTP APIs, with keys kept out of scripts.
 - Offline tests with mock Discord responses and execution traces.
+
+## External databases
+
+Add named connections to `wisp.json` and keep credentials in `.env` or environment variables:
+
+```json
+{
+  "databases": {
+    "main": {"engine": "postgres", "url": "${DATABASE_URL}"},
+    "cache": {"engine": "redis", "url": "${REDIS_URL}"}
+  },
+  "storage": {"connection": "main"}
+}
+```
+
+This replaces the project's `storage` object; omit the change to `storage` to keep local SQLite while using named connections. MySQL uses `"engine": "mysql"` and a `mysql://` URL. Each connection name is available under `db`:
+
+```wisp
+let result = db.main.sql("SELECT name FROM members WHERE id = ?", [user.id])
+let names = result.rows
+db.cache.set("member_count", 42, 300)
+let count = db.cache.get("member_count")
+```
+
+`sql` runs one statement and returns `{rows, affected}`. Use `?` parameters on PostgreSQL and MySQL; write `??` for a literal PostgreSQL `?` operator. Redis supports `get`, `set`, `has`, `delete`, and `increment`; values are JSON-compatible and the optional `set` TTL is in seconds. Wisp awaits database calls automatically.
+
+To move all existing Wisp data from SQLite, stop the bot and run `wisp storage migrate --from ./data/bot.db --to main --yes` from the project directory. The target must be empty; the source is retained. Then change `storage` to `{"connection":"main"}`. `wisp test` stays offline and provides `mock.dbRespond(connection, operation, result)` and `mock.dbCalls()` for database calls.
+
+## External APIs
+
+Scripts can call web APIs with `http` and `apis`. List the hosts scripts may reach under `http.allow`. Declare services that need keys under `http.apis`, so the key stays in `.env` and never appears in script values:
+
+```json
+{
+  "http": {
+    "allow": ["api.github.com", "*.example.org"],
+    "apis": {
+      "weather": {
+        "base_url": "https://api.openweathermap.org/data/2.5",
+        "query": {"appid": "${WEATHER_KEY}", "units": "metric"},
+        "cache_seconds": 60
+      }
+    }
+  }
+}
+```
+
+```wisp
+command "weather":
+    description "Current weather"
+    option city:
+        type: string
+        required: true
+    execute:
+        let r = apis.weather.get("/weather", {"query": {"q": options.city}})
+        if r.ok:
+            reply "{options.city}: {r.json.main.temp}°C"
+        else:
+            reply "Weather is unavailable right now ({r.status})"
+```
+
+`http.get`, `post`, `put`, `patch`, `delete`, and `request(method, url, options)` take an options map with `headers`, `query`, `json` or `body`, and `timeout_ms`. Named APIs take a path relative to `base_url`, and their configured headers and query values always win over the script's. A response is `{status, ok, headers, text, truncated, json}`. Responses outside 2xx are returned rather than raised. Blocked hosts, network failures, timeouts, and oversized responses raise `HTTP002` through `HTTP004`, which `try`/`catch` can handle.
+
+**Safety and limits:**
+
+- Requests use HTTPS unless a host is listed as `http://host`.
+- Requests to private, loopback, and cloud metadata addresses are refused, including through DNS or redirects.
+- Redirects are limited to 3. Named APIs never redirect to another origin.
+- Response bodies are limited to 1 MiB and request bodies to 64 KiB.
+- The default timeout is 8 seconds, and every request also stops when its command, event, or task times out.
+- Headers whose names look secret (`auth`, `key`, `token`, `secret`, `password`, `cookie`) must use `${ENV}` references.
+
+Slow commands are deferred automatically after 1.8 seconds. Add `defer: ephemeral` to a command when its eventual reply is private.
+
+`wisp test` never touches the network. Use `mock.httpRespond("GET", "https://api.openweathermap.org/data/2.5/weather", {"json": {...}})` to queue a response; a trailing `*` matches any path suffix. `mock.httpFail(method, url)` simulates a network failure, and `mock.httpCalls()` records requests with secret headers redacted. Unmocked requests fail the test.
 
 ## Discord embed 2.0
 

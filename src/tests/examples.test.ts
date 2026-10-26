@@ -22,9 +22,9 @@ test('poll example validates and records a component vote across database restar
     let storage=new Storage(path);const components=new ComponentRegistry(storage,'guild','user');let declared:RuntimeComponent[]=[];
     const poll=compiled.commands.find(command=>command.name==='poll')!;
     await execute(poll.execute,{file:poll.file,values:{},reply:async body=>{declared=body.components??[];}});
-    const rows=components.buildRows(declared);const button=rows[0]!.components[0]!.toJSON();assert.ok('custom_id' in button);
+    const rows=await components.buildRows(declared);const button=rows[0]!.components[0]!.toJSON();assert.ok('custom_id' in button);
     storage.close();storage=new Storage(path);
-    const state=new ComponentRegistry(storage,'guild','user').resolve(button.custom_id,'button','guild','other-user');
+    const state=await new ComponentRegistry(storage,'guild','user').resolve(button.custom_id,'button','guild','other-user');
     assert.equal(state.state.poll,'demo');
     const handler=compiled.events.find(event=>event.name==='button:vote_a')!,replies:string[]=[];
     await execute(handler.body,{file:handler.file,values:{storage:storageApi(storage,'component:vote_a'),interaction:record({state:record(state.state)}) as Value},reply:async body=>{replies.push(body.content!);}});

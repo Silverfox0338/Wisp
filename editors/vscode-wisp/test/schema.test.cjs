@@ -13,6 +13,11 @@ test('manifest schema validates a Wisp project and rejects unknown fields and ve
   assert.equal(validate({...manifest,runtiem:'typo'}),false);
   assert.equal(validate({...manifest,runtime:'>=9.0.0'}),false);
   assert.equal(validate({...manifest,discord:{...manifest.discord,intents:['imaginary']}}),false);
+  assert.equal(validate({...manifest,runtime:'>=0.0.8 <0.0.9',databases:{main:{engine:'postgres',url:'${DATABASE_URL}'},cache:{engine:'redis',url:'${REDIS_URL}'}},storage:{connection:'main'}}),true,JSON.stringify(validate.errors));
+  assert.equal(validate({...manifest,databases:{main:{engine:'mysql',url:'mysql://literal-secret'}}}),false);
+  assert.equal(validate({...manifest,http:{allow:['api.github.com','*.example.org'],apis:{weather:{base_url:'https://api.weather.test',headers:{'X-Api-Key':'${WEATHER_KEY}'},cache_seconds:60}}}}),true,JSON.stringify(validate.errors));
+  assert.equal(validate({...manifest,http:{allow:['https://api.github.com/path']}}),false);
+  assert.equal(validate({...manifest,http:{apis:{weather:{base_url:'http://api.weather.test'}}}}),false);
   assert.equal(extension.contributes.jsonValidation[0].fileMatch[0],'wisp.json');
 });
 

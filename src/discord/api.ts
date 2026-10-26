@@ -72,7 +72,8 @@ function plain(value:Value,label:string):unknown {
   return JSON.parse(json) as unknown;
 }
 
-export function discordApi(client:Client,projectRoot?:string):Value {
+/** onMessage receives messages created or edited through REST, for example to link component rows. */
+export function discordApi(client:Client,projectRoot?:string,onMessage?:(message:unknown)=>Promise<void>):Value {
   const request=host(async(method,path,body=null,query=null,reason=null,files=null)=>{
     if(typeof method!=='string'||!methods.has(method.toUpperCase()))throw new WispError('DISCORD005','Discord method must be GET, POST, PUT, PATCH, or DELETE');
     if(typeof path!=='string'||path.length>2048||!routePattern.test(path)||path.includes('//')||path.split('/').includes('..')||path.split('/').includes('.'))throw new WispError('DISCORD005','Discord path must be a relative /api/v10 route without query or fragment');
@@ -108,7 +109,9 @@ export function discordApi(client:Client,projectRoot?:string):Value {
         if(binary.length>768*1024)throw new WispError('DISCORD005','Binary Discord response exceeds 768 KiB');
         return {base64:binary.toString('base64'),encoding:'base64'};
       }
-      return plain(result as Value,'Discord response') as Value;
+      const value=plain(result as Value,'Discord response') as Value;
+      if(onMessage&&requestOptions.method!=='GET'&&value&&typeof value==='object'&&!Array.isArray(value)&&'channel_id' in value&&'components' in value)await onMessage(value);
+      return value;
     }catch(error){
       if(error instanceof WispError)throw error;
       const details=error&&typeof error==='object'?error as {status?:unknown;code?:unknown}:{};

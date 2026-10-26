@@ -1,5 +1,5 @@
 import {WispError} from '../diagnostics.js';
-import type {CommandDecl,ComponentDecl,EventDecl,Expr,Module,OptionDecl,Stmt,V2Node} from './ast.js';
+import type {CommandDecl,ComponentDecl,Cooldown,EventDecl,Expr,Module,OptionDecl,Stmt,SubcommandDecl,V2Node} from './ast.js';
 import {tokenize,type Token} from './lexer.js';
 import {basename} from 'node:path';
 const precedence:Record<string,number>={'??':1,or:2,and:3,'==':4,'!=':4,'<':5,'<=':5,'>':5,'>=':5,'+':6,'-':6,'*':7,'/':7};
@@ -14,28 +14,66 @@ class Parser {
   private fail(message:string):never{const t=this.peek();throw new WispError('PARSE002',message,this.file,t.line,t.column);}
   private newline():void{this.expect('NEWLINE');}
   private block<T>(fn:()=>T):T[]{this.expect(':');this.newline();this.expect('INDENT');const out:T[]=[];while(!this.at('DEDENT')&&!this.at('EOF'))out.push(fn());this.expect('DEDENT');if(!out.length)this.fail('Block must contain at least one statement');return out;}
-  parse():Module{const m:Module={commands:[],events:[],statements:[]};while(!this.at('EOF')){if(this.at('command'))m.commands.push(this.command());else if(this.at('event')||this.at('on'))m.events.push(this.event());else m.statements.push(this.statement());}return m;}
-  private command():CommandDecl{const start=this.take();const name=this.stringLiteral();const sections=this.block(()=>{
+  parse():Module{const m:Module={commands:[],events:[],statements:[]};while(!this.at('EOF')){if(this.at('command'))m.commands.push(this.command());else if((this.at('user')||this.at('message'))&&this.peek(1).value==='command')m.commands.push(this.command(this.peek().value as 'user'|'message'));else if(this.at('event')||this.at('on'))m.events.push(this.event());else m.statements.push(this.statement());}return m;}
+  private command(type?:'user'|'message'):CommandDecl{if(type)this.take();const start=this.take();const name=this.stringLiteral();const subcommands:SubcommandDecl[]=[];const sections=this.block(()=>{
     if(this.at('description')){this.take();const value=this.stringLiteral();this.newline();return {kind:'description' as const,value};}
     if(this.at('default_member_permissions')){this.take();this.expect(':');const value=this.stringLiteral();this.newline();return {kind:'permissions' as const,value};}
     if(this.at('permission')){this.take();this.expect(':');const value=this.stringLiteralOrIdent();this.newline();return {kind:'permission' as const,value};}
     if(this.at('timeout')){this.take();this.expect(':');const value=Number(this.expect('NUMBER').value);this.newline();return {kind:'timeout' as const,value};}
+    if(this.at('defer')){this.take();this.expect(':');const value=this.stringLiteralOrIdent();if(value!=='public'&&value!=='ephemeral')this.fail('defer must be public or ephemeral');this.newline();return {kind:'defer' as const,value};}
+    if(this.at('cooldown'))return {kind:'cooldown' as const,value:this.cooldown()};
     if(this.at('option'))return {kind:'option' as const,value:this.option()};
+    if(this.at('subcommand')){subcommands.push(this.subcommand());return {kind:'subcommand' as const,value:null};}
+    if(this.at('group')){subcommands.push(...this.group());return {kind:'subcommand' as const,value:null};}
     if(this.at('execute')){this.take();return {kind:'execute' as const,value:this.block(()=>this.statement())};}
-    return this.fail('Expected description, option, or execute in command');
+    return this.fail(type?'Expected permission, timeout, defer, cooldown, or execute in context menu command':'Expected description, option, subcommand, group, cooldown, or execute in command');
   });
-  const desc=sections.filter(s=>s.kind==='description');const exec=sections.filter(s=>s.kind==='execute');
-  if(desc.length!==1||exec.length!==1)throw new WispError('COMMAND001','Command requires exactly one description and execute block',this.file,start.line,start.column);
-  if(sections.filter(s=>s.kind==='timeout').length>1)this.fail('Command timeout may be declared only once');
-  if(sections.findIndex(s=>s.kind==='execute')!==sections.length-1)this.fail('Execute must be the final command section');
-  const options=sections.filter(s=>s.kind==='option').map(s=>s.value as OptionDecl);
-  const names=new Set<string>();for(const o of options){if(names.has(o.name))throw new WispError('COMMAND002',`Duplicate option ${o.name}`,this.file,o.line,1);names.add(o.name);}
-  return {kind:'command',name,description:desc[0]!.value as string,options,execute:exec[0]!.value as Stmt[],file:this.file,line:start.line,defaultMemberPermissions:sections.find(s=>s.kind==='permissions')?.value as string|undefined,permission:sections.find(s=>s.kind==='permission')?.value as string|undefined,timeoutMs:sections.find(s=>s.kind==='timeout')?.value as number|undefined};}
-  private option():OptionDecl{const start=this.take();const name=this.expect('IDENT').value;const fields=this.block(()=>{const k=this.expect('IDENT').value;if(!['type','description','required','choices','min','max'].includes(k))this.fail(`Unknown option property ${k}`);this.expect(':');let v:string|boolean|number|string[];if(k==='choices'){this.expect('[');const a:string[]=[];while(!this.at(']')){a.push(this.stringLiteral());if(!this.at(']'))this.expect(',');}this.expect(']');v=a;}else if(k==='required'){const b=this.expect('IDENT').value;if(b!=='true'&&b!=='false')this.fail('required must be true or false');v=b==='true';}else if(k==='min'||k==='max'){v=Number(this.expect('NUMBER').value);}else v=this.stringLiteralOrIdent();this.newline();return [k,v] as const;});
+  const desc=sections.filter(s=>s.kind==='description');const exec=sections.filter(s=>s.kind==='execute');const options=sections.filter(s=>s.kind==='option').map(s=>s.value as OptionDecl);
+  const err=(code:string,message:string,suggestion:string)=>new WispError(code,message,this.file,start.line,start.column,suggestion);
+  if(type){
+    if(desc.length)throw err('COMMAND004',`${type} command "${name}" cannot have a description`,'Remove the description line; Discord only shows the name in the Apps menu');
+    if(options.length||subcommands.length)throw err('COMMAND004',`${type} command "${name}" cannot have options or subcommands`,`Use target inside execute: to read the right-clicked ${type}`);
+    if(exec.length!==1)throw err('COMMAND001',`${type} command "${name}" requires exactly one execute block`,'Add an execute: block');
+  }else if(subcommands.length){
+    if(desc.length!==1)throw err('COMMAND001',`Command "${name}" requires exactly one description`,'Add description "..." at the top of the command');
+    if(exec.length||options.length)throw err('COMMAND004',`Command "${name}" has subcommands, so it cannot have its own execute or options`,'Move execute: and option blocks into a subcommand');
+  }else if(desc.length!==1||exec.length!==1)throw new WispError('COMMAND001','Command requires exactly one description and execute block',this.file,start.line,start.column);
+  if(sections.filter(s=>s.kind==='timeout').length>1)this.fail('Command timeout may be declared only once');if(sections.filter(s=>s.kind==='defer').length>1)this.fail('Command defer may be declared only once');if(sections.filter(s=>s.kind==='cooldown').length>1)this.fail('Command cooldown may be declared only once');
+  if(exec.length&&sections.findIndex(s=>s.kind==='execute')!==sections.length-1)this.fail('Execute must be the final command section');
+  this.uniqueOptions(options);
+  const routes=new Set<string>(),groups=new Set<string>();for(const sub of subcommands){const key=`${sub.group??''} ${sub.name}`;if(routes.has(key))throw new WispError('COMMAND002',`Duplicate subcommand ${sub.group?`${sub.group} `:''}${sub.name}`,this.file,sub.line,1);routes.add(key);if(sub.group)groups.add(sub.group);}
+  for(const sub of subcommands)if(!sub.group&&groups.has(sub.name))throw new WispError('COMMAND002',`Subcommand ${sub.name} has the same name as a group`,this.file,sub.line,1,'Give the subcommand or the group a different name');
+  return {kind:'command',...(type?{type}:{}),name,description:(desc[0]?.value as string|undefined)??'',options,execute:(exec[0]?.value as Stmt[]|undefined)??[],...(subcommands.length?{subcommands}:{}),file:this.file,line:start.line,defaultMemberPermissions:sections.find(s=>s.kind==='permissions')?.value as string|undefined,permission:sections.find(s=>s.kind==='permission')?.value as string|undefined,timeoutMs:sections.find(s=>s.kind==='timeout')?.value as number|undefined,defer:sections.find(s=>s.kind==='defer')?.value as 'public'|'ephemeral'|undefined,...(sections.some(s=>s.kind==='cooldown')?{cooldown:sections.find(s=>s.kind==='cooldown')!.value as Cooldown}:{})};}
+  private cooldown():Cooldown{const start=this.take();const usage='Write it like cooldown: 10 seconds per user';const fail=(message:string):never=>{throw new WispError('COMMAND004',message,this.file,start.line,start.column,usage);};if(!this.at(':'))fail('cooldown needs a colon');this.take();if(!this.at('NUMBER'))fail('cooldown needs a number first');const amount=Number(this.take().value);const unit=this.at('IDENT')?this.take().value:'';const scale=({second:1,seconds:1,minute:60,minutes:60,hour:3600,hours:3600,day:86400,days:86400} as Record<string,number>)[unit];if(!scale)fail(`cooldown unit must be seconds, minutes, hours, or days${unit?`, not ${unit}`:''}`);let per:Cooldown['per']='user';if(this.at('per')){this.take();const who=this.at('IDENT')?this.take().value:'';if(who!=='user'&&who!=='guild'&&who!=='channel')fail(`cooldown must be per user, guild, or channel${who?`, not ${who}`:''}`);per=who as Cooldown['per'];}if(!this.at('NEWLINE'))fail('Unexpected text after cooldown');this.newline();return {seconds:amount*scale!,per};}
+  private uniqueOptions(options:OptionDecl[]):void{const names=new Set<string>();for(const o of options){if(names.has(o.name))throw new WispError('COMMAND002',`Duplicate option ${o.name}`,this.file,o.line,1);names.add(o.name);}}
+  private subcommand():SubcommandDecl{const start=this.take();const name=this.stringLiteralOrIdent();const parts:{description?:string;execute?:Stmt[];cooldown?:Cooldown}={};const options:OptionDecl[]=[];
+    this.block(()=>{
+      if(this.at('description')){this.take();if(parts.description!==undefined)this.fail('Subcommand description may be declared only once');parts.description=this.stringLiteral();this.newline();return 'description';}
+      if(this.at('cooldown')){if(parts.cooldown)this.fail('Subcommand cooldown may be declared only once');parts.cooldown=this.cooldown();return 'cooldown';}
+      if(this.at('option')){if(parts.execute)this.fail('Execute must be the final subcommand section');options.push(this.option());return 'option';}
+      if(this.at('execute')){if(parts.execute)this.fail('Subcommand execute may be declared only once');this.take();parts.execute=this.block(()=>this.statement());return 'execute';}
+      if(this.at('subcommand')||this.at('group'))this.fail('Subcommands cannot be nested; put group blocks directly inside the command');
+      return this.fail('Expected description, option, cooldown, or execute in subcommand');
+    });
+    if(parts.description===undefined||!parts.execute)throw new WispError('COMMAND001',`Subcommand ${name} requires a description and an execute block`,this.file,start.line,start.column,'Add description "..." and execute: inside the subcommand');
+    this.uniqueOptions(options);
+    return {name,description:parts.description,options,execute:parts.execute,...(parts.cooldown?{cooldown:parts.cooldown}:{}),line:start.line};}
+  private group():SubcommandDecl[]{const start=this.take();const name=this.stringLiteralOrIdent();const parts:{description?:string}={};const subs:SubcommandDecl[]=[];
+    this.block(()=>{
+      if(this.at('description')){this.take();if(parts.description!==undefined)this.fail('Group description may be declared only once');parts.description=this.stringLiteral();this.newline();return 'description';}
+      if(this.at('subcommand')){subs.push(this.subcommand());return 'subcommand';}
+      return this.fail('Groups contain only a description and subcommand blocks');
+    });
+    if(parts.description===undefined||!subs.length)throw new WispError('COMMAND001',`Group ${name} requires a description and at least one subcommand`,this.file,start.line,start.column,'Add description "..." and one or more subcommand blocks inside the group');
+    return subs.map(sub=>({...sub,group:name,groupDescription:parts.description}));}
+  private option():OptionDecl{const start=this.take();const name=this.expect('IDENT').value;const fields=this.block(()=>{const k=this.expect('IDENT').value;if(!['type','description','required','choices','min','max','suggest'].includes(k))this.fail(`Unknown option property ${k}`);if(k==='suggest')return [k,this.block(()=>this.statement())] as const;this.expect(':');let v:string|boolean|number|string[];if(k==='choices'){this.expect('[');const a:string[]=[];while(!this.at(']')){a.push(this.stringLiteral());if(!this.at(']'))this.expect(',');}this.expect(']');v=a;}else if(k==='required'){const b=this.expect('IDENT').value;if(b!=='true'&&b!=='false')this.fail('required must be true or false');v=b==='true';}else if(k==='min'||k==='max'){v=Number(this.expect('NUMBER').value);}else v=this.stringLiteralOrIdent();this.newline();return [k,v] as const;});
     const f=Object.fromEntries(fields);const type=f.type;const description=f.description;
     if(typeof type!=='string'||(description!==undefined&&typeof description!=='string'))throw new WispError('COMMAND002','Option requires a type and optional string description',this.file,start.line,start.column);
     if(!['user','string','integer','number','boolean','role','channel'].includes(type))throw new WispError('COMMAND002',`Unsupported option type ${type}`,this.file,start.line,start.column);
-    return {name,type,description:typeof description==='string'?description:`Select ${name}`,required:f.required===true,choices:f.choices as string[]|undefined,min:f.min as number|undefined,max:f.max as number|undefined,line:start.line};}
+    const suggest=f.suggest as Stmt[]|undefined;
+    if(suggest&&f.choices)throw new WispError('COMMAND004',`Option ${name} cannot have both choices and suggest`,this.file,start.line,start.column,'Use choices for a fixed list, or suggest: for live (autocomplete) suggestions');
+    if(suggest&&!['string','integer','number'].includes(type))throw new WispError('COMMAND004',`suggest: (autocomplete) needs a string, integer, or number option, not ${type}`,this.file,start.line,start.column,'Discord already offers a picker for user, role, and channel options');
+    return {name,type,description:typeof description==='string'?description:`Select ${name}`,required:f.required===true,choices:f.choices as string[]|undefined,min:f.min as number|undefined,max:f.max as number|undefined,...(suggest?{suggest}:{}),line:start.line};}
   private stringLiteralOrIdent():string {return this.at('STRING')?this.stringLiteral():this.expect('IDENT').value;}
   private stringLiteral():string{const t=this.expect('STRING');try{return t.value[0]==='"'?JSON.parse(t.value) as string:t.value.slice(1,-1).replace(/\\([\\'nrt])/g,(_,c:string)=>({n:'\n',r:'\r',t:'\t'}[c]??c));}catch{return this.fail('Invalid string escape');}}
   private event():EventDecl{const start=this.take();let name=this.expect('IDENT').value;if(start.value==='on'&&['button','select','user_select','role_select','channel_select','modal'].includes(name)){const pattern=this.stringLiteral();if(pattern.includes('*')&&(name!=='button'||!/^[A-Za-z][A-Za-z0-9_-]*\*$/.test(pattern)))this.fail('Only button handlers support a trailing * wildcard');name=`${name}:${pattern}`;}else if(start.value==='on'&&name==='gateway'){const type=this.stringLiteral();if(!/^[A-Z][A-Z_0-9]{0,99}$/.test(type))throw new WispError('EVENT001',`Invalid Gateway dispatch ${type}`,this.file,start.line,start.column);name=`gateway:${type}`;}else if(!['ready','member_join','member_leave','message_create','message_update','message_delete'].includes(name))throw new WispError('EVENT001',`Unsupported event ${name}`,this.file,start.line,start.column);return {kind:'event',name,body:this.block(()=>this.statement()),file:this.file,line:start.line};}
@@ -72,7 +110,7 @@ class Parser {
   private statement():Stmt{const t=this.peek();if(this.at('let')){this.take();const name=this.expect('IDENT').value;this.expect('=');const expr=this.expression();this.newline();return {kind:'let',name,expr,line:t.line,column:t.column};}
     if(this.at('import')){this.take();const source=this.stringLiteral();if(!source.endsWith('.wisp'))this.fail('Import path must end in .wisp');let alias=basename(source,'.wisp');if(this.at('as')){this.take();alias=this.expect('IDENT').value;}if(!/^[A-Za-z_][A-Za-z_0-9]*$/.test(alias))this.fail('Import needs a valid alias');this.newline();return {kind:'import',source,alias,line:t.line,column:t.column};}
     if(this.at('export')){this.take();if(!this.at('let')&&!this.at('function'))this.fail('export requires let or function');const declaration=this.statement();if(declaration.kind!=='let'&&declaration.kind!=='function')this.fail('Invalid export');return {...declaration,exported:true};}
-    if(this.at('every')||this.at('after')){const repeat=this.take().value==='every';const name=this.stringLiteral();const seconds=this.expression();this.expect('seconds');return {kind:'schedule',name,seconds,repeat,body:this.block(()=>this.statement()),line:t.line,column:t.column};}
+    if(this.at('every')||this.at('after')){const repeat=this.take().value==='every';const name=this.stringLiteral();const seconds=this.expression();this.expect('seconds');let data:Expr|undefined;if(this.at('with')){this.take();data=this.expression();}return {kind:'schedule',name,seconds,repeat,...(data?{data}:{}),body:this.block(()=>this.statement()),line:t.line,column:t.column};}
     if(this.at('show')){this.take();if(!this.at('modal'))this.fail('Expected modal after show');return {kind:'show_modal',component:this.component(),line:t.line,column:t.column};}
     if(this.at('global')){this.take();const name=this.expect('IDENT').value;this.expect('=');const expr=this.expression();this.newline();return {kind:'global',name,expr,line:t.line,column:t.column};}
     if(this.at('function')){this.take();const name=this.expect('IDENT').value;this.expect('(');const params:{name:string;defaultValue?:Expr}[]=[];let optional=false;while(!this.at(')')){const param=this.expect('IDENT').value;if(params.some(p=>p.name===param))this.fail(`Duplicate parameter ${param}`);let defaultValue:Expr|undefined;if(this.at('=')){this.take();defaultValue=this.expression();optional=true;}else if(optional)this.fail('Required parameters must precede default parameters');params.push({name:param,defaultValue});if(!this.at(')'))this.expect(',');}this.expect(')');return {kind:'function',name,params,body:this.block(()=>this.statement()),line:t.line,column:t.column};}

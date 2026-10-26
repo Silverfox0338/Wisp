@@ -4,7 +4,7 @@ import {TextDecoder} from 'node:util';
 import {parse} from '../compiler/parser.js';
 import type {Module,Stmt} from '../compiler/ast.js';
 import {WispError} from '../diagnostics.js';
-import {execute,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
+import {execute,record,type ExecutionBudget,type ExecutionContext,type Value} from '../runtime/interpreter.js';
 
 export function resolveModulePath(root:string,from:string,source:string):string {
   if(!source.endsWith('.wisp')||isAbsolute(source))throw new WispError('MODULE001','Import must name a relative .wisp file',from);
@@ -42,14 +42,14 @@ export function compileModules(root:string,sources:{file:string;statements:Stmt[
   return compiled;
 }
 
-/** A new cache is created for each command or event invocation. */
+/** A new cache is created for each command or event invocation; modules share the importer's budget. */
 export function moduleResolver(root:string,modules:Map<string,Module>,context:Omit<ExecutionContext,'file'|'resolveImport'>):NonNullable<ExecutionContext['resolveImport']> {
   const cache=new Map<string,Promise<Value>>();
-  const load=(source:string,from:string):Promise<Value>=>{
+  const load=(source:string,from:string,parent?:ExecutionBudget):Promise<Value>=>{
     const path=resolveModulePath(root,from,source),module=modules.get(path);
     if(!module)throw new WispError('MODULE001',`Module was not compiled: ${source}`,from);
     const existing=cache.get(path);if(existing)return existing;
-    const promise=execute(module.statements,{...context,file:path,resolveImport:load}).then(exports=>record(exports) as Value);
+    const promise=execute(module.statements,{...context,file:path,resolveImport:load,budget:parent??context.budget}).then(exports=>record(exports) as Value);
     cache.set(path,promise);return promise;
   };
   return load;

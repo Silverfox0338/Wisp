@@ -1,29 +1,346 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "title":"Wisp project manifest",
-  "description":"Configuration for a Wisp Discord bot.",
-  "type":"object",
-  "additionalProperties":false,
-  "required":["manifest_version","name","version","entry","runtime","discord","events","storage"],
-  "properties":{
-    "manifest_version":{"const":1,"description":"Wisp manifest schema version."},
-    "name":{"type":"string","minLength":1,"description":"Project display name."},
-    "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$","description":"Project version in major.minor.patch form."},
-    "entry":{"type":"string","minLength":1,"description":"Entrypoint .wisp file relative to the project root."},
-    "runtime":{"enum":[">=0.0.2 <0.0.3",">=0.0.3 <0.0.4",">=0.0.4 <0.0.5",">=0.0.5 <0.0.6",">=0.0.6 <0.0.7",">=0.0.7 <0.0.8"],"description":"Compatible Wisp runtime. Older 0.0.2 through 0.0.4 projects remain accepted."},
-    "discord":{"type":"object","additionalProperties":false,"required":["application_id","token","intents","commands"],"properties":{
-      "application_id":{"type":"string","minLength":1,"description":"Discord application ID; use ${DISCORD_APPLICATION_ID}."},
-      "token":{"type":"string","minLength":1,"description":"Bot token; use ${DISCORD_TOKEN}, never a committed literal."},
-      "intents":{"type":"array","items":{"enum":["guilds","guild_members","guild_moderation","guild_expressions","guild_integrations","guild_webhooks","guild_invites","guild_voice_states","guild_presences","guild_messages","guild_message_reactions","guild_message_typing","direct_messages","direct_message_reactions","direct_message_typing","message_content","guild_scheduled_events","auto_moderation_configuration","auto_moderation_execution","guild_message_polls","direct_message_polls"]},"description":"Gateway intents requested at startup. Privileged intents also require Developer Portal approval."},
-      "commands":{"type":"object","additionalProperties":false,"required":["directory","scope"],"properties":{
-        "directory":{"type":"string","minLength":1,"description":"Command scripts directory."},
-        "scope":{"enum":["guild","global"],"description":"Slash command registration scope."},
-        "guild_id":{"type":"string","description":"Guild ID required when scope is guild."}
-      },"if":{"properties":{"scope":{"const":"guild"}}},"then":{"required":["guild_id"]}}
-    }},
-    "events":{"type":"object","additionalProperties":false,"required":["directory"],"properties":{"directory":{"type":"string","minLength":1,"description":"Event handler scripts directory."}}},
-    "storage":{"type":"object","additionalProperties":false,"required":["engine","path"],"properties":{"engine":{"const":"sqlite","description":"SQLite persistence engine."},"path":{"type":"string","minLength":1,"description":"Database path under data/."}}},
-    "logging":{"type":"object","additionalProperties":false,"required":["level"],"properties":{"level":{"enum":["debug","info","warn","error"],"description":"Minimum runtime log level."}}},
-    "packages":{"type":"object","description":"Locally installed Wisp packages with pinned integrity hashes.","patternProperties":{"^[a-z][a-z0-9-]{0,63}$":{"type":"object","additionalProperties":false,"required":["version","integrity"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},"integrity":{"type":"string","pattern":"^sha256-[a-f0-9]{64}$"}}}},"additionalProperties":false}
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wisp project manifest",
+  "description": "Configuration for a Wisp Discord bot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "name",
+    "version",
+    "entry",
+    "runtime",
+    "discord",
+    "events",
+    "storage"
+  ],
+  "properties": {
+    "manifest_version": {
+      "const": 1,
+      "description": "Wisp manifest schema version."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project display name."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Project version in major.minor.patch form."
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Entrypoint .wisp file relative to the project root."
+    },
+    "runtime": {
+      "enum": [
+        ">=0.0.2 <0.0.3",
+        ">=0.0.3 <0.0.4",
+        ">=0.0.4 <0.0.5",
+        ">=0.0.5 <0.0.6",
+        ">=0.0.6 <0.0.7",
+        ">=0.0.7 <0.0.8",
+        ">=0.0.8 <0.0.9"
+      ],
+      "description": "Compatible Wisp runtime. Older 0.0.2 through 0.0.4 projects remain accepted."
+    },
+    "discord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_id",
+        "token",
+        "intents",
+        "commands"
+      ],
+      "properties": {
+        "application_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Discord application ID; use ${DISCORD_APPLICATION_ID}."
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bot token; use ${DISCORD_TOKEN}, never a committed literal."
+        },
+        "intents": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "guilds",
+              "guild_members",
+              "guild_moderation",
+              "guild_expressions",
+              "guild_integrations",
+              "guild_webhooks",
+              "guild_invites",
+              "guild_voice_states",
+              "guild_presences",
+              "guild_messages",
+              "guild_message_reactions",
+              "guild_message_typing",
+              "direct_messages",
+              "direct_message_reactions",
+              "direct_message_typing",
+              "message_content",
+              "guild_scheduled_events",
+              "auto_moderation_configuration",
+              "auto_moderation_execution",
+              "guild_message_polls",
+              "direct_message_polls"
+            ]
+          },
+          "description": "Gateway intents requested at startup. Privileged intents also require Developer Portal approval."
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "scope"
+          ],
+          "properties": {
+            "directory": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Command scripts directory."
+            },
+            "scope": {
+              "enum": [
+                "guild",
+                "global"
+              ],
+              "description": "Slash command registration scope."
+            },
+            "guild_id": {
+              "type": "string",
+              "description": "Guild ID required when scope is guild."
+            }
+          },
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "guild"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "guild_id"
+            ]
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event handler scripts directory."
+        }
+      }
+    },
+    "storage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "engine",
+            "path"
+          ],
+          "properties": {
+            "engine": {
+              "const": "sqlite",
+              "description": "SQLite persistence engine."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Database path under data/."
+            }
+          },
+          "description": "Local SQLite storage."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "connection"
+          ],
+          "properties": {
+            "connection": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "description": "Name of a connection declared in databases."
+            }
+          },
+          "description": "Keep Wisp storage in a named external database."
+        }
+      ],
+      "description": "Where Wisp keeps storage values, component state, and member rosters."
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "Minimum runtime log level."
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Limits for after/every timers.",
+      "properties": {
+        "max_tasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 32,
+          "description": "How many timers can be pending at once, including saved ones. Defaults to 32."
+        }
+      }
+    },
+    "packages": {
+      "type": "object",
+      "description": "Locally installed Wisp packages with pinned integrity hashes.",
+      "patternProperties": {
+        "^[a-z][a-z0-9-]{0,63}$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "integrity"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            },
+            "integrity": {
+              "type": "string",
+              "pattern": "^sha256-[a-f0-9]{64}$"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "databases": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,31}$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "engine",
+            "url"
+          ],
+          "properties": {
+            "engine": {
+              "enum": [
+                "postgres",
+                "mysql",
+                "redis"
+              ],
+              "description": "Database engine."
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^\\$\\{[A-Z][A-Z0-9_]*\\}$",
+              "description": "Connection URL as a single environment reference, such as ${DATABASE_URL}."
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Named PostgreSQL, MySQL, or Redis connections exposed to scripts as db.<name>."
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Outbound HTTP access for scripts. Requests go only to listed hosts or named APIs, never to private network addresses.",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "description": "Hosts scripts may call with http.get(...). Use *.example.com for subdomains and an http:// prefix to permit plain HTTP.",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:http://)?(?:\\*\\.)?[a-z0-9-]+(?:\\.[a-z0-9-]+)*$"
+          }
+        },
+        "apis": {
+          "type": "object",
+          "description": "Named APIs exposed as apis.<name>. Their headers and query values are added to every request and are never visible to scripts.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "base_url"
+              ],
+              "properties": {
+                "base_url": {
+                  "type": "string",
+                  "pattern": "^(?:https://|\\$\\{)",
+                  "description": "HTTPS base URL without credentials, query, or fragment."
+                },
+                "headers": {
+                  "type": "object",
+                  "description": "Headers sent with every request. Secret-looking headers (auth, key, token, secret, password, cookie) must use an environment reference. Environment references such as ${API_KEY} are substituted from the process environment or .env.",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "query": {
+                  "type": "object",
+                  "description": "Query parameters added to every request. Environment references such as ${API_KEY} are substituted from the process environment or .env.",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "timeout_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60000,
+                  "default": 8000,
+                  "description": "Request timeout in milliseconds."
+                },
+                "cache_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 86400,
+                  "default": 0,
+                  "description": "Cache successful GET responses in memory for this many seconds."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -43,8 +43,8 @@ test('UI builders register persistent controls and reject bad shapes',async()=>{
     const button=await api.button!.call('approve','Approve',{owner:'user'});
     const rows=await api.rows!.call([button]) as {components:{custom_id:string}[]}[];
     assert.equal(rows.length,1);
-    assert.equal(registry.resolve(rows[0]!.components[0]!.custom_id,'button','guild','user').name,'approve');
-    assert.throws(()=>api.rows!.call([]),/1 to 25 components/);
+    assert.equal((await registry.resolve(rows[0]!.components[0]!.custom_id,'button','guild','user')).name,'approve');
+    await assert.rejects(Promise.resolve(api.rows!.call([])),/1 to 25 components/);
   }finally{db.close();rmSync(root,{recursive:true,force:true});}
 });
 

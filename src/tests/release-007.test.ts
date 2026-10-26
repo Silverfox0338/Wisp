@@ -30,7 +30,7 @@ test('embed 2.0 builds a Discord Components V2 card with media and persistent bu
     const children=card.components as Record<string,Value>[];
     assert.deepEqual(children.map(item=>item.type),[9,10,12,10,1]);
     assert.equal((children[4]!.components as Record<string,Value>[])[0]!.type,2);
-    assert.match(String((children[4]!.components as Record<string,Value>[])[0]!.custom_id),/^ss:/);
+    assert.equal((children[4]!.components as Record<string,Value>[])[0]!.custom_id,'sl:button:more');
   }finally{db.close();rmSync(root,{recursive:true,force:true});}
 });
 

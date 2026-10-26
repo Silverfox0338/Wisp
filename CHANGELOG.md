@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.8
+
+- Added command cooldowns (`cooldown: 24 hours per user`, `per guild`, or `per channel`). They work on commands, subcommands, and context menus; a blocked user gets a private "Slow down!" reply, and cooldowns are kept in storage on every backend.
+- `after` and `every` timers now survive restarts. Pending tasks are saved to storage and re-armed on boot, and runs missed while offline are skipped. Task names can include `{values}`, and `with {...}` passes data to the body as `task.data`. Two different timers with the same name are now a `wisp check` error. `scheduler.max_tasks` in `wisp.json` raises the 32-task limit to as many as 1,000. `wisp storage migrate` copies saved tasks.
+- Test scripts gain `mock.advance`, `mock.as`, `mock.tasks`, and `mock.runTask`.
+- Added subcommands and subcommand groups (`subcommand "set":`, `group "roles":`), live option suggestions through `suggest:` blocks (Discord autocomplete), and right-click `user command` and `message command` context menus with `target`. `wisp commands diff/sync` now handle nested and context menu commands, and they match commands by type and name. Test scripts gain subcommand paths in `mock.run`, plus `mock.suggest`, `mock.runUser`, and `mock.runMessage`. The editor gains completion, scopes, highlighting, and snippets for the new syntax.
+- Added named PostgreSQL, MySQL, and Redis connections with `db` helpers and optional external storage for all Wisp data.
+- Added explicit SQLite to external storage migration and offline database mocks.
+- Made persistent component and roster operations work with asynchronous storage adapters.
+- Added `http` and named `apis` for external API requests. Requests are limited to an allowlist, private networks are blocked, keys come from the environment, redirects, sizes, and timeouts are bounded, and responses can be cached. Includes offline `mock.httpRespond`, `mock.httpFail`, and `mock.httpCalls`.
+- Added a `defer: public|ephemeral` command setting. Automatic deferral of slow commands is now public by default, so public replies no longer flash a placeholder, and calling `interaction.defer()` after an automatic defer no longer fails.
+- Added trailing `*` wildcards to Discord and HTTP test mocks.
+- Added `db` and `apis` completion in the editor, database and HTTP schema documentation, SQL and Redis and HTTP snippets, and named API status in `wisp doctor`.
+- Buttons and selects without `state`, `owner`, or `expires` now carry their handler in the custom ID and store no database row. Stateful component rows are linked to their message and deleted when the message, channel, thread, or guild is deleted; rows on ephemeral messages expire after 24 hours. Components still never expire by default. Message deletion cleanup needs the `guild_messages` intent.
+- Fixed storage writes that were not awaited; a rejected write could crash the bot instead of reaching `try`/`catch`.
+- Fixed the Discord client error, shard error, and unhandled rejection paths that could stop the process. Host errors in logs now include their cause, and login failures explain disallowed intents or rejected tokens.
+- The bot now ignores its own `message_create` and `message_update` events, preventing reply loops.
+- Redis connections now reconnect with backoff and report lost and restored connections in the log.
+- Imported modules now share the importing handler's step, loop, and time budget and its cancellation signal.
+- Fixed maps containing a `call` key being treated as functions, a call-depth counter leak after repeated recursion errors, and unbounded memory use in `string.format`.
+- Fixed `wisp storage migrate` when `--from` or `--to` is missing, and repaired icon references in the Wisp + ASFI Seti icon theme.
+
 ## 0.0.7
 
 - Added declarative `reply v2:` layouts with containers, explicit `markdown:` text blocks, sections, thumbnails, separators, and persistent button or select rows.

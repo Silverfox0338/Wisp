@@ -1,18 +1,18 @@
 import {randomInt} from 'node:crypto';
 import {WispError} from '../diagnostics.js';
-import {Storage} from '../storage/sqlite.js';
+import type {StorageBackend} from '../storage/types.js';
 import {host,record,type HostFunction,type Value} from './interpreter.js';
 function number(value:Value,label:string):number{if(typeof value!=='number'||!Number.isFinite(value))throw new WispError('RUNTIME002',`${label} must be a finite number`);return value;}
 function string(value:Value,label:string):string{if(typeof value!=='string')throw new WispError('RUNTIME002',`${label} must be a string`);return value;}
-function storageHost(call:HostFunction['call']):HostFunction{return host((...args)=>{try{return call(...args);}catch(error){if(error instanceof WispError)throw error;if(error instanceof Error&&typeof (error as Error&{code?:unknown}).code==='string'&&(error as Error&{code:string}).code.startsWith('ERR_SQLITE_'))throw new WispError('STORAGE006',`SQLite: ${error.message}`);throw error;}});}
-export function storageApi(db:Storage,scope:string):Value{return record({
+function storageHost(call:HostFunction['call']):HostFunction{return host(async(...args)=>{try{return await call(...args);}catch(error){if(error instanceof WispError)throw error;if(error instanceof Error&&typeof (error as Error&{code?:unknown}).code==='string'&&(error as Error&{code:string}).code.startsWith('ERR_SQLITE_'))throw new WispError('STORAGE006',`SQLite: ${error.message}`);throw error;}});}
+export function storageApi(db:StorageBackend,scope:string):Value{return record({
   get:storageHost((key,fallback=null)=>db.get(scope,string(key,'key'),fallback)),
-  set:storageHost((key,value)=>{db.set(scope,string(key,'key'),value);return null;}),
-  delete:storageHost(key=>{db.delete(scope,string(key,'key'));return null;}),
+  set:storageHost(async(key,value)=>{await db.set(scope,string(key,'key'),value);return null;}),
+  delete:storageHost(async key=>{await db.delete(scope,string(key,'key'));return null;}),
   has:storageHost(key=>db.has(scope,string(key,'key'))),
   increment:storageHost((key,amount=1)=>db.increment(scope,string(key,'key'),number(amount,'amount'))),
   sharedGet:storageHost((key,fallback=null)=>db.get('shared',string(key,'key'),fallback)),
-  sharedSet:storageHost((key,value)=>{db.set('shared',string(key,'key'),value);return null;}),
+  sharedSet:storageHost(async(key,value)=>{await db.set('shared',string(key,'key'),value);return null;}),
   sharedIncrement:storageHost((key,amount=1)=>db.increment('shared',string(key,'key'),number(amount,'amount')))
 }) as Value;}
 export function mathApi():Value{return record({
@@ -35,7 +35,7 @@ export function timeApi():Value{return record({
   discord:host((value,style='R')=>{const code=string(style,'style');if(!['t','T','d','D','f','F','R'].includes(code))throw new WispError('RUNTIME002','Invalid Discord timestamp style');return `<t:${Math.floor(timestamp(value).valueOf()/1000)}:${code}>`;}),
   duration:host(value=>{const seconds=number(value,'seconds');if(seconds<0||seconds>1e9)throw new WispError('RUNTIME002','Duration out of range');const total=Math.floor(seconds),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60);return `${hours}h ${minutes}m ${total%60}s`;})
 }) as Value;}
-function jsonCompatible(value:unknown,seen=new Set<object>(),depth=0):boolean{
+export function jsonCompatible(value:unknown,seen=new Set<object>(),depth=0):boolean{
   if(depth>32)return false;
   if(value===null||typeof value==='boolean')return true;
   if(typeof value==='string')return value.length<=65536;

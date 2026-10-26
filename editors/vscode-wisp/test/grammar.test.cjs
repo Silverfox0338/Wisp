@@ -16,12 +16,11 @@ test('combined icon theme keeps Seti file icons alongside Wisp mascots', () => {
   assert.equal(theme.languageIds.typescript, '_typescript');
   assert.equal(theme.languageIds.json, '_json');
   assert.equal(theme.languageIds.markdown, '_markdown');
-  assert.equal(theme.fileExtensions.asfi, '_asfi');
   assert.equal(theme.fileExtensions.wisp, 'wisp-file');
   assert.equal(theme.fileExtensions['events/wisp'], 'wisp-event');
   assert.equal(theme.fileExtensions['modules/wisp'], 'wisp-module');
   assert.ok(fs.existsSync(path.join(root, 'icons', theme.fonts[0].src[0].path)));
-  assert.ok(fs.existsSync(path.join(root, 'icons', theme.iconDefinitions._asfi.iconPath)));
+  for (const definition of Object.values(theme.iconDefinitions)) if (definition.iconPath) assert.ok(fs.existsSync(path.join(root, 'icons', definition.iconPath)), definition.iconPath);
 });
 
 test('VS Code associates .wisp with the TextMate grammar', () => {
@@ -52,6 +51,12 @@ test('the installed grammar scopes real Wisp constructs', async () => {
   };
   hasScope('command "joinrank":', 'command', 'keyword.declaration.command');
   hasScope('    option user:', 'option', 'keyword.control');
+  hasScope('user command "Report user":', 'user', 'keyword.declaration.command');
+  hasScope('user command "Report user":', '"Report user"', 'entity.name.function.command');
+  hasScope('    subcommand "set":', 'subcommand', 'keyword.declaration.command');
+  hasScope('    group roles:', 'roles', 'entity.name.function.command');
+  hasScope('        suggest:', 'suggest', 'keyword.control');
+  hasScope('    cooldown: 10 seconds per user', 'cooldown', 'keyword.control');
   hasScope('        type: user', 'user', 'support.type.option');
   hasScope('        let rank = guild.joinRank(member)', 'guild', 'support.class.discord');
   hasScope('        let rank = guild.joinRank(member)', 'joinRank', 'support.function.builtin');
