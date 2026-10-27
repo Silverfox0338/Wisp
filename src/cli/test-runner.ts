@@ -89,9 +89,10 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
       const contextCommand=(type:CommandType,name:Value):[CommandDecl,CommandRoute]=>{const command=findCommand(compiled.commands,type,requiredString(name,'Command name'));if(!command)throw new WispError('CLI002',`Unknown ${type} command "${String(name)}"`);return [command,commandRoute(command)!];};
       const runCommand=async(command:CommandDecl,route:CommandRoute,options:Record<string,Value>,target:Value):Promise<Value[]>=>{
         if(target!==null&&(typeof target!=='object'||Array.isArray(target)))throw new WispError('CLI002','Context menu target must be a map');
-        const optionValues=record(options) as Value,targetValue=target===null?null:record(target as Record<string,Value>) as Value;
-        const responses:Value[]=[];
         const guildId=project.manifest.discord.commands.guild_id??'42',type=command.type??'slash',label=type==='slash'?`/${route.path}`:`${type} command "${command.name}"`;
+        const withData=(value:Value):Value=>value&&typeof value==='object'&&!Array.isArray(value)&&typeof (value as Record<string,Value>).id==='string'?record({...(value as Record<string,Value>),data:dataApi(db,memberDataScope(guildId,(value as Record<string,Value>).id as string))}) as Value:value;
+        const optionValues=record(Object.fromEntries(Object.entries(options).map(([k,v])=>[k,route.options.find(o=>o.name===k)?.type==='user'?withData(v):v]))) as Value,targetValue=target===null?null:record(target as Record<string,Value>) as Value;
+        const responses:Value[]=[];
         const blocked=await checkCooldown(db,route.cooldown,`${type}:${route.path}`,label,{user:actingUser,guild:guildId,channel:'42'},Date.now()+clockOffset*1000);
         if(blocked){responses.push(record({content:blocked,ephemeral:true}) as Value);return responses;}
         const values={...common(command.name),options:optionValues,target:targetValue,
