@@ -14,6 +14,7 @@
 - The VS Code extension gains Format Document, "did you mean" quick fixes, go-to-definition into imported modules, and highlighting and snippets for the new syntax.
 - Fixed the editor reporting `Duplicate declaration` when a variable or function had the same name as a command, or when a slash command and a context menu command shared a name. Two commands of the same type with the same name are now reported as `Duplicate command`.
 - Clearer errors: `on "ready":` explains that event names are not quoted, misspelled events suggest the right name, `if x = 1:` says to use `==`, and component errors such as an expired list are shown to the member instead of an incident code.
+- New projects include an `AGENTS.md` guide that tells AI coding agents what Wisp is, how to work in a project, and the Python and JavaScript habits that don't apply. The guide also ships in the npm package.
 - New projects use runtime `>=0.0.9 <0.0.10`. 0.0.8 projects keep working.
 
 ## 0.0.8
