@@ -2,8 +2,10 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parse} from '../compiler/parser.js';
 import {execute,type Value} from '../runtime/interpreter.js';
-import {analyze} from '../editor/service.js';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {analyze,definition} from '../editor/service.js';
+import {formatSource} from '../compiler/format.js';
+import {formatFiles} from '../cli/format.js';
+import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Storage} from '../storage/sqlite.js';
@@ -181,4 +183,46 @@ test('roles menus become a stateless select and pick changes roles',()=>withStor
 test('editor understands pages and roles',()=>{
   const source='let shop = []\nreply pages:\n    items: shop\n    each item:\n        "{index}: {item}"\nreply:\n    roles:\n        "News": "1"\n';
   assert.deepEqual(analyze(source,'pages.wisp').diagnostics,[]);
+});
+
+test('wisp fmt normalizes spacing, keeps markdown, and is idempotent',()=>{
+  const messy='let   x=1+2*-3\nlet m = {"a":1,"b" :[ -1, x ]}\nif (x>=2) and not(x==5):   \n    log.info( "hi  there" )   # keep  this\ncommand "card":\n    description "Card"\n    execute:\n        reply v2:\n            container:\n                markdown:\n                    # Title  \n                    Some   text {x}\n\n\n\non ready:\n    log.info("up")\n';
+  const formatted=formatSource(messy,'m.wisp');
+  assert.equal(formatted,'let x = 1 + 2 * -3\nlet m = {"a": 1, "b": [-1, x]}\nif (x >= 2) and not (x == 5):\n    log.info("hi  there") # keep  this\n\ncommand "card":\n    description "Card"\n    execute:\n        reply v2:\n            container:\n                markdown:\n                    # Title  \n                    Some   text {x}\n\non ready:\n    log.info("up")\n');
+  assert.equal(formatSource(formatted,'m.wisp'),formatted);
+  assert.equal(formatSource('if true:\n    let a = 1\nelse:\n    let a = 2\n'),'if true:\n    let a = 1\nelse:\n    let a = 2\n');
+  assert.equal(formatSource('let items = [\n    1,2,\n    3,\n]\n'),'let items = [\n    1, 2,\n    3,\n]\n');
+  assert.throws(()=>formatSource('let = 1\n'),/Expected IDENT/);
+});
+
+test('wisp fmt --check reports files without writing them',()=>{
+  const root=mkdtempSync(join(tmpdir(),'wisp-fmt-'));
+  try{
+    writeFileSync(join(root,'a.wisp'),'let   x=1\r\n');writeFileSync(join(root,'b.wisp'),'let y = 2\n');
+    const checked=formatFiles([],root,true);
+    assert.deepEqual([checked.files,checked.changed.length,checked.failed.length],[2,1,0]);
+    assert.equal(readFileSync(join(root,'a.wisp'),'utf8'),'let   x=1\r\n');
+    formatFiles([],root,false);
+    assert.equal(readFileSync(join(root,'a.wisp'),'utf8'),'let x = 1\r\n');
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('event and name mistakes suggest the fix',()=>{
+  assert.throws(()=>parse('on "ready":\n    log.info("x")\n'),/Event names are not quoted; write on ready:/);
+  assert.throws(()=>parse('on member_joni:\n    log.info("x")\n'),/Unsupported event member_joni; did you mean member_join\?/);
+  const [typo]=analyze('let user_name = 1\nlet copy = user_nme\n','typo.wisp').diagnostics;
+  assert.equal(typo!.message,'Undefined name user_nme; did you mean user_name?');
+  assert.deepEqual(typo!.data,{replacement:'user_name'});
+});
+
+test('editor finds definitions inside imported modules',()=>{
+  const root=mkdtempSync(join(tmpdir(),'wisp-def-'));
+  try{
+    writeFileSync(join(root,'wisp.json'),'{}');
+    writeFileSync(join(root,'util.wisp'),'export function greet(name):\n    return "Hi {name}"\n');
+    const file=join(root,'main.wisp'),analysis=analyze('import "./util.wisp"\nlet text = util.greet("Kit")\n',file);
+    const found=definition(analysis,{line:1,character:17});
+    assert.equal(found?.file,join(root,'util.wisp'));
+    assert.deepEqual(found?.range.start,{line:0,character:16});
+  }finally{rmSync(root,{recursive:true,force:true});}
 });

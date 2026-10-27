@@ -50,3 +50,37 @@ test('language server handles initialization, diagnostics, completion and hover 
     assert.ok(duplicate.params.diagnostics.some(item=>item.code==='COMMAND003'));
   }finally{child.kill();rmSync(root,{recursive:true,force:true});}
 });
+
+test('language server formats, offers quick fixes, and jumps into imported modules',async()=>{
+  const root=mkdtempSync(path.join(tmpdir(),'wisp-lsp-009-'));
+  writeFileSync(path.join(root,'wisp.json'),'{}');
+  mkdirSync(path.join(root,'modules'));
+  const moduleFile=path.join(root,'modules','util.wisp');
+  writeFileSync(moduleFile,'export function greet(name):\n    return "Hi {name}"\n');
+  const mainFile=path.join(root,'main.wisp');
+  const main='import "./modules/util.wisp"\nlet user_name   =util.greet( "Kit" )\nlet copy = user_nme\n';
+  writeFileSync(mainFile,main);
+  const child=spawn(process.execPath,[path.join(__dirname,'../dist/server.js'),'--stdio'],{stdio:['pipe','pipe','pipe']});
+  let buffer=Buffer.alloc(0),next=1;const pending=new Map(),notifications=[];
+  child.stdout.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(true){const header=buffer.indexOf('\r\n\r\n');if(header<0)break;const length=Number(/Content-Length:\s*(\d+)/i.exec(buffer.subarray(0,header).toString())[1]);if(buffer.length<header+4+length)break;const data=JSON.parse(buffer.subarray(header+4,header+4+length).toString());buffer=buffer.subarray(header+4+length);if(data.id!==undefined&&pending.has(data.id)){pending.get(data.id)(data);pending.delete(data.id);}else notifications.push(data);}});
+  const send=payload=>{const json=Buffer.from(JSON.stringify({jsonrpc:'2.0',...payload}));child.stdin.write(`Content-Length: ${json.length}\r\n\r\n`);child.stdin.write(json);};
+  const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),5000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
+  try{
+    const initialized=await request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{}});
+    assert.equal(initialized.result.capabilities.documentFormattingProvider,true);
+    send({method:'initialized',params:{}});
+    const uri=pathToFileURL(mainFile).href;
+    send({method:'textDocument/didOpen',params:{textDocument:{uri,languageId:'wisp',version:1,text:main}}});
+    const formatting=await request('textDocument/formatting',{textDocument:{uri},options:{tabSize:4,insertSpaces:true}});
+    assert.equal(formatting.result[0].newText,'import "./modules/util.wisp"\nlet user_name = util.greet("Kit")\nlet copy = user_nme\n');
+    const definition=await request('textDocument/definition',{textDocument:{uri},position:{line:1,character:22}});
+    assert.equal(definition.result.uri,pathToFileURL(moduleFile).href);
+    assert.deepEqual(definition.result.range.start,{line:0,character:16});
+    let diagnostics;for(let i=0;i<50&&!diagnostics;i++){diagnostics=notifications.find(item=>item.method==='textDocument/publishDiagnostics'&&item.params.uri===uri)?.params.diagnostics;if(!diagnostics)await new Promise(resolve=>setTimeout(resolve,20));}
+    const typo=diagnostics.find(item=>item.code==='EDITOR001');
+    assert.match(typo.message,/did you mean user_name/);
+    const actions=await request('textDocument/codeAction',{textDocument:{uri},range:typo.range,context:{diagnostics:[typo]}});
+    assert.equal(actions.result[0].title,'Change to user_name');
+    assert.equal(actions.result[0].edit.changes[uri][0].newText,'user_name');
+  }finally{child.kill();rmSync(root,{recursive:true,force:true});}
+});

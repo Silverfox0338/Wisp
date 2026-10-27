@@ -1,6 +1,6 @@
 import type {ComponentDecl,Expr,PagesDecl,Stmt,V2Node} from '../compiler/ast.js';
 import {parse} from '../compiler/parser.js';
-import {WispError} from '../diagnostics.js';
+import {WispError,distance} from '../diagnostics.js';
 import {valueMethod} from './methods.js';
 import type {ExecutionTrace} from './trace.js';
 import {container,section,separator,textDisplay,thumbnail,v2Payload} from '../discord/v2.js';
@@ -23,7 +23,6 @@ export interface PagedReply {title?:string;color?:Value;pages:string[]}
 /** Handler name of the built-in select that `roles:` menus use. */
 export const ROLE_MENU='wisp-roles';
 export interface ExecutionContext {values:Record<string,Value>; reply?:(body:{content?:string;embed?:Record<string,Value>;v2?:Record<string,Value>;ephemeral?:boolean;components?:RuntimeComponent[];rawComponents?:Value[];pages?:PagedReply})=>Promise<void>; showModal?:(modal:RuntimeComponent)=>Promise<void>; log?:(message:string)=>void; file?:string; maxSteps?:number; maxLoops?:number; timeoutMs?:number; signal?:AbortSignal; resolveImport?:(source:string,from:string,parent?:ExecutionBudget)=>Promise<Value>; budget?:ExecutionBudget; schedule?:(name:string,seconds:number,repeat:boolean,body:Stmt[],meta?:{template:string;data:Record<string,Value>|null})=>void; trace?:ExecutionTrace; onReturn?:(value:Value)=>void}
-function distance(a:string,b:string):number{const row=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let prev=row[0]!;row[0]=i;for(let j=1;j<=b.length;j++){const old=row[j]!;row[j]=Math.min(row[j]!+1,row[j-1]!+1,prev+(a[i-1]===b[j-1]?0:1));prev=old;}}return row[b.length]!;}
 class Scope {private values=new Map<string,Value>();constructor(private readonly parent?:Scope){} names():string[]{return [...this.values.keys(),...(this.parent?.names()??[])];}has(name:string):boolean{return this.values.has(name)||!!this.parent?.has(name);}get(name:string):Value{if(this.values.has(name))return this.values.get(name)!;if(this.parent?.has(name))return this.parent.get(name);const best=this.names().map(x=>({x,d:distance(name,x)})).sort((a,b)=>a.d-b.d)[0];throw new WispError('RUNTIME001',`Undefined name ${name}`,undefined,undefined,undefined,best&&best.d<=2?`Did you mean "${best.x}"?`:undefined);}declare(name:string,value:Value):void{if(this.values.has(name))throw new WispError('RUNTIME001',`Already declared: ${name}`);this.values.set(name,value);}assign(name:string,value:Value):void{if(this.values.has(name)){this.values.set(name,value);return;}if(this.parent?.has(name)){this.parent.assign(name,value);return;}this.values.set(name,value);}global(name:string,value:Value):void{if(this.parent){this.parent.global(name,value);return;}this.values.set(name,value);}}
 class ReturnSignal {constructor(readonly value:Value){}}
 class LoopSignal {constructor(readonly kind:'break'|'continue'){}}

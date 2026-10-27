@@ -216,5 +216,59 @@
       "    reply \"${6:Done}\""
     ],
     "description": "Call a named API from http.apis; keys stay in wisp.json and .env"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value}:",
+      "    when ${2:\"a\"}, ${3:\"b\"}:",
+      "        $4",
+      "    else:",
+      "        $0"
+    ],
+    "description": "Pick a branch by value"
+  },
+  "Paged reply": {
+    "prefix": "pages",
+    "body": [
+      "reply pages:",
+      "    items: ${1:items}",
+      "    per_page: ${2:10}",
+      "    title: \"${3:Title}\"",
+      "    each item:",
+      "        \"${4:{item}}\""
+    ],
+    "description": "A list split into pages with arrow buttons"
+  },
+  "Role menu": {
+    "prefix": "roles",
+    "body": [
+      "reply:",
+      "    text: \"${1:Pick your roles}\"",
+      "    roles:",
+      "        \"${2:Role name}\": \"${3:role id}\"",
+      "    pick: ${4|many,one|}"
+    ],
+    "description": "Let members pick roles from a menu"
+  },
+  "Leaderboard": {
+    "prefix": "leaderboard",
+    "body": [
+      "let top = guild.top(\"${1:coins}\", ${2:10})",
+      "reply pages:",
+      "    items: top",
+      "    title: \"${3:Leaderboard}\"",
+      "    each row:",
+      "        \"{row.rank}. {row.mention}: {row.value}\""
+    ],
+    "description": "Top members by a user.data field"
+  },
+  "Add to user data": {
+    "prefix": "userdata",
+    "body": [
+      "user.data.${1:coins} += ${2:1}",
+      "reply \"You now have {user.data.${1:coins}} ${1:coins}\""
+    ],
+    "description": "Save a number for this member"
   }
 }
