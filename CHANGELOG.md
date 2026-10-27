@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.9
+
+- Added `break` and `continue` in `for` and `while` loops. `break` outside a loop is a `wisp check` error.
+- Added `match value:` with `when a, b:` branches and an optional `else:`.
+- Added the `%` remainder operator and the `in` / `not in` checks for list items, map keys, and text.
+- Added `+=`, `-=`, `*=`, and `/=`, plus assignment to map fields and list items (`player.hp = 10`, `scores[name] += 1`). A missing map field starts at 0. Built-in values give a clear error instead of changing.
+- Added `user.data` and `guild.data` for saved per-member and per-server fields, with no storage keys. `user.data.coins += 5` is atomic. Any member value, including `user` options, has `.data`.
+- Added `guild.top(field, count)` leaderboards for SQLite, PostgreSQL, MySQL, and Redis. Redis keeps a sorted index, and `wisp storage migrate` rebuilds it.
+- Added `reply pages:` for lists split into pages with ◀ ▶ buttons. Only the member who ran the command can turn the pages, and lists are cleaned up with their message.
+- Added `roles:` menus in `reply:` so members can pick their own roles, with `pick: one` or `pick: many`.
+- Added `wisp fmt` and `wisp fmt --check`. Files that would parse differently after formatting are left unchanged.
+- The VS Code extension gains Format Document, "did you mean" quick fixes, go-to-definition into imported modules, and highlighting and snippets for the new syntax.
+- Fixed the editor reporting `Duplicate declaration` when a variable or function had the same name as a command, or when a slash command and a context menu command shared a name. Two commands of the same type with the same name are now reported as `Duplicate command`.
+- Clearer errors: `on "ready":` explains that event names are not quoted, misspelled events suggest the right name, `if x = 1:` says to use `==`, and component errors such as an expired list are shown to the member instead of an incident code.
+- New projects use runtime `>=0.0.9 <0.0.10`. 0.0.8 projects keep working.
+
 ## 0.0.8
 
 - Added command cooldowns (`cooldown: 24 hours per user`, `per guild`, or `per channel`). They work on commands, subcommands, and context menus; a blocked user gets a private "Slow down!" reply, and cooldowns are kept in storage on every backend.

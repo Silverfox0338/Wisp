@@ -57,6 +57,46 @@ wisp run
 - Local or external database storage, reusable Wisp modules, and scheduled tasks.
 - Calls to external HTTP APIs, with keys kept out of scripts.
 - Offline tests with mock Discord responses and execution traces.
+- Per-member and per-server saved data, leaderboards, paged lists, and role menus.
+
+## Language basics
+
+Wisp reads like plain steps. Loops support `break` and `continue`. `match` picks a branch by value, and `in` checks lists, map keys, and text:
+
+```wisp
+let counts = {}
+for word in options.text.split(" "):
+    if word == "":
+        continue
+    counts[word] += 1
+
+match options.color:
+    when "red", "pink":
+        reply "Warm pick!"
+    when "blue":
+        reply "Cool pick!"
+    else:
+        reply "Nice pick"
+```
+
+`+=`, `-=`, `*=`, and `/=` update a value in place, and `%` gives the remainder (`-1 % 3` is `2`). You can change map fields and list items directly, as in `player.hp = 10` or `items[0] = "sword"`. A missing map field starts at 0 when you add to it. Built-in values such as `user` and `guild` cannot be changed.
+
+## Saved data and leaderboards
+
+`user.data` saves fields for one member in one server. `guild.data` saves fields for the whole server. No storage keys are needed:
+
+```wisp
+command "daily":
+    description "Collect your daily coins"
+    cooldown: 24 hours per user
+    execute:
+        user.data.coins += 50
+        reply "You have {user.data.coins} coins"
+```
+
+A missing field reads as `null`, so use `user.data.coins ?? 0` when you need a number. `+=` counts from 0 and is safe when many members use the command at once. Setting a field to `null` deletes it. Any member value has `.data`, including a `user` option such as `options.target.data.warnings`.
+
+Data fields are one level deep. To change a map you saved, read it, change it, and save it again. `guild.top("coins", 10)` returns the members with the highest saved number as `{rank, id, mention, value}`. It works with SQLite, PostgreSQL, MySQL, and Redis storage.
 
 ## External databases
 
@@ -175,6 +215,41 @@ reply:
 Classic replies support content, one embed, and action rows. Containers, sections, thumbnails beside text, galleries, and separators require `reply v2:`. For computed layouts or channel messages, use `ui.embed2(...)`, `ui.v2(...)`, and the lower level UI builders with `discord.send(channelId, payload)` or `discord.messages.send(channelId, payload)`. File displays use `attachment://filename` and the corresponding upload through `discord.messages.send(..., files)`.
 
 V2 messages use components instead of the traditional `content` and `embeds` fields. The `IS_COMPONENTS_V2` flag stays on a message after creation, including when editing it. See [Discord's component reference](https://docs.discord.com/developers/components/reference) for layout details.
+
+## Paged lists and role menus
+
+`reply pages:` turns a list into an embed with ◀ ▶ buttons. Each item becomes one line:
+
+```wisp
+command "leaderboard":
+    description "Show the richest members"
+    execute:
+        reply pages:
+            items: guild.top("coins", 50)
+            per_page: 10
+            title: "Leaderboard"
+            each row:
+                "{row.rank}. {row.mention}: {row.value} coins"
+```
+
+Inside `each`, `index` counts the items from 1. Optional fields are `color`, `ephemeral`, and `empty` (the text shown when the list is empty). Only the member who ran the command can turn the pages. All the lines are worked out when the reply is sent and saved with the message, up to 16 KiB.
+
+`roles:` adds a menu where members pick their own roles:
+
+```wisp
+reply:
+    text: "Pick the pings you want"
+    roles:
+        "Announcements": "111111111111111111"
+        "Events": "222222222222222222"
+    pick: many
+```
+
+Roles a member picks are added. The menu's other roles are removed from them. Use `pick: one` to allow a single role. The bot needs **Manage Roles**, and its highest role must be above the menu roles. No handler or database row is needed.
+
+## Formatting and editor help
+
+`wisp fmt` tidies every `.wisp` file in the current folder. It fixes spacing around operators and commas, removes trailing spaces, and keeps blank lines tidy. `markdown:` blocks are left exactly as written. `wisp fmt --check` changes nothing; it lists files that need formatting and exits with code 1 if any do, which is useful in CI. If formatting would change what a file means, Wisp leaves that file alone. The VS Code extension uses the same formatter for **Format Document**. It also offers "did you mean" quick fixes for misspelled names and can jump to functions in imported modules.
 
 ## Documentation
 
