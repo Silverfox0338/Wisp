@@ -2,7 +2,7 @@
 
 This local extension registers `.wisp` files, preserves TextMate syntax highlighting, and starts a TypeScript language server. It offers parser-based syntax diagnostics, undefined-name diagnostics, completion for actual Wisp host APIs and local variables/functions, module import path completion, hover, signature help, go to definition, references, rename, document symbols, and workspace symbols. A JSON schema supplies `wisp.json` validation and field help. The language server needs no Discord token.
 
-The extension has its own version number, separate from Wisp's. Version 0.1.0 supports Wisp 0.0.9.
+The extension has its own version number, separate from Wisp's. Version 0.1.1 supports Wisp 0.0.10 and older projects.
 
 The optional **Wisp Violet** color theme and file icon themes are available from VS Code's theme pickers. Installation does not change your current theme. Component snippets and four-space indentation are included.
 
@@ -17,7 +17,7 @@ Set-Location .\editors\vscode-wisp
 npm ci
 npm test
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
-code --install-extension .\wisp-language-0.1.0.vsix --force
+code --install-extension .\wisp-language-0.1.1.vsix --force
 ```
 
 Reload VS Code after installation. A `.wisp` file should show **Wisp** in the language picker. The server and grammar tests run offline. The VSIX can also be installed via VS Code's **Extensions: Install from VSIX** command.

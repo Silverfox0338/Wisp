@@ -1,11 +1,13 @@
-import {Client,GatewayIntentBits,Partials,GuildMember,type PartialGuildMember,type User,type Message,type ChatInputCommandInteraction,type ContextMenuCommandInteraction,type AutocompleteInteraction,type ButtonInteraction,type StringSelectMenuInteraction,type UserSelectMenuInteraction,type RoleSelectMenuInteraction,type ChannelSelectMenuInteraction,type ModalSubmitInteraction} from 'discord.js';
+import {Client,GatewayIntentBits,Partials,GuildMember,Status,type PartialGuildMember,type User,type Message,type ChatInputCommandInteraction,type ContextMenuCommandInteraction,type AutocompleteInteraction,type ButtonInteraction,type StringSelectMenuInteraction,type UserSelectMenuInteraction,type RoleSelectMenuInteraction,type ChannelSelectMenuInteraction,type ModalSubmitInteraction} from 'discord.js';
 import {watch,type FSWatcher} from 'node:fs';
+import {relative} from 'node:path';
 import {commandRoute,componentIndex,findCommand,findComponentHandler,type CompiledProject} from '../project/discovery.js';
 import type {ProjectConfig} from '../project/manifest.js';
 import {ReloadableProject} from '../project/reload.js';
 import {moduleResolver} from '../project/modules.js';
 import {ROLE_MENU,execute,host,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
 import {standardGlobals} from '../runtime/globals.js';
+import {filesApi} from '../runtime/files.js';
 import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
 import {HttpClient,type HttpLimits} from '../runtime/http.js';
 import {DatabaseManager} from '../storage/manager.js';
@@ -24,7 +26,8 @@ import type {ComponentOwner,StorageBackend,TaskRow} from '../storage/types.js';
 import {commandPermissions} from './permissions.js';
 import {EventGate} from './events.js';
 import {WispError} from '../diagnostics.js';
-import {discordApi} from './api.js';
+import {discordApi,type GatewayPacket,type GatewayRemote} from './api.js';
+import {shardForGuild,type ShardLink,type ShardStatus} from './shards.js';
 import {ExecutionTrace,writeTrace} from '../runtime/trace.js';
 import {uiApi} from './ui.js';
 
@@ -34,16 +37,37 @@ function rankedValue(member:RankedMember):Value{return record({...member}) as Va
 function messageValue(message:Message):Value{return record({id:message.id,content:message.content||null,author:userValue(message.author),channelId:message.channelId,guildId:message.guildId,createdAt:message.createdAt.toISOString()}) as Value;}
 function safe(error:unknown):string{return error instanceof WispError?`${error.code} ${error.message}${error.frames.length?` | ${error.frames.map(frame=>`${frame.file??'<source>'}:${frame.line}:${frame.column}`).join(' <- ')}`:error.line?` at ${error.line}:${error.column??1}`:''}`:`Unexpected host error${error instanceof Error?` (${error.name}: ${error.message.slice(0,500)})`:''}`;}
 
-export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=false,reload?:()=>CompiledProject):Promise<void>{
+/** `link` is set when this is one of several processes started by `wisp run` with `discord.processes` above 1. */
+export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=false,reload?:()=>CompiledProject,link?:ShardLink):Promise<void>{
   const configured=project.manifest.discord.intents;
   const intentBits:Record<string,number>={guilds:GatewayIntentBits.Guilds,guild_members:GatewayIntentBits.GuildMembers,guild_moderation:GatewayIntentBits.GuildModeration,guild_expressions:GatewayIntentBits.GuildExpressions,guild_integrations:GatewayIntentBits.GuildIntegrations,guild_webhooks:GatewayIntentBits.GuildWebhooks,guild_invites:GatewayIntentBits.GuildInvites,guild_voice_states:GatewayIntentBits.GuildVoiceStates,guild_presences:GatewayIntentBits.GuildPresences,guild_messages:GatewayIntentBits.GuildMessages,guild_message_reactions:GatewayIntentBits.GuildMessageReactions,guild_message_typing:GatewayIntentBits.GuildMessageTyping,direct_messages:GatewayIntentBits.DirectMessages,direct_message_reactions:GatewayIntentBits.DirectMessageReactions,direct_message_typing:GatewayIntentBits.DirectMessageTyping,message_content:GatewayIntentBits.MessageContent,guild_scheduled_events:GatewayIntentBits.GuildScheduledEvents,auto_moderation_configuration:GatewayIntentBits.AutoModerationConfiguration,auto_moderation_execution:GatewayIntentBits.AutoModerationExecution,guild_message_polls:GatewayIntentBits.GuildMessagePolls,direct_message_polls:GatewayIntentBits.DirectMessagePolls};
   const intents=[...new Set([GatewayIntentBits.Guilds,...configured.map(name=>intentBits[name]!)])];
-  const client=new Client({intents,partials:[Partials.Message]}),databases=await DatabaseManager.open(project),storage=databases.storage,ranking=new RankingService(storage),registry=new ReloadableProject(compiled,reload??(()=>compiled));
+  const configuredShards=project.manifest.discord.shards??'auto';
+  const sharding=link?{shards:link.info.shards,shardCount:link.info.count}:configuredShards==='auto'?{shards:'auto' as const}:{shardCount:configuredShards};
+  const client=new Client({intents,partials:[Partials.Message],...sharding}),databases=await DatabaseManager.open(project),storage=databases.storage,ranking=new RankingService(storage),registry=new ReloadableProject(compiled,reload??(()=>compiled));
   const watchers:FSWatcher[]=[],inFlight=new Set<Promise<void>>(),eventGate=new EventGate(32);let stopped=false;
-  const log=(level:string,message:string)=>{const order=['debug','info','warn','error'];if(order.indexOf(level)<order.indexOf(project.manifest.logging.level))return;console.log(`${new Date().toISOString()} ${level.toUpperCase()} ${message}`);};
+  const log=(level:string,message:string)=>{const order=['debug','info','warn','error'];if(order.indexOf(level)<order.indexOf(project.manifest.logging.level))return;console.log(`${new Date().toISOString()} ${level.toUpperCase()} ${link?`[process ${link.info.index}] `:''}${message}`);};
   const scheduler=new Scheduler((name,error)=>log('error',`Task ${name}: ${safe(error)}`),project.manifest.scheduler?.max_tasks??32);
   const onRejection=(reason:unknown)=>log('error',`Unhandled rejection: ${safe(reason)}`);
   client.on('error',error=>log('error',`Discord client: ${safe(error)}`));client.on('shardError',(error,shard)=>log('error',`Shard ${shard}: ${safe(error)}`));process.on('unhandledRejection',onRejection);
+  client.on('shardReady',shard=>{log('info',`Shard ${shard} ready`);track(dispatchEvent('shard_ready',{shard}));});
+  client.on('shardDisconnect',(close,shard)=>{log('warn',`Shard ${shard} disconnected (code ${close.code})`);track(dispatchEvent('shard_disconnect',{shard,code:close.code}));});
+  client.on('shardReconnecting',shard=>{log('info',`Shard ${shard} reconnecting`);track(dispatchEvent('shard_reconnecting',{shard}));});
+  client.on('shardResume',shard=>{log('info',`Shard ${shard} resumed`);track(dispatchEvent('shard_resume',{shard}));});
+  const shardTotal=()=>link?.info.count??client.options.shardCount??1;
+  const statusName=(status:Status)=>(Status[status]??'unknown').replace(/[A-Z]/g,(letter,at:number)=>`${at?'_':''}${letter.toLowerCase()}`);
+  const localShards=():ShardStatus[]=>[...client.ws.shards.values()].map(shard=>({id:shard.id,status:statusName(shard.status),ping:shard.ping>=0?Math.round(shard.ping):null,guilds:client.guilds.cache.filter(guild=>guild.shardId===shard.id).size}));
+  const sendLocal=(shard:number|null,packet:GatewayPacket)=>{if(shard===null){for(const local of client.ws.shards.values())local.send(packet);return null;}const local=client.ws.shards.get(shard);if(!local)throw new WispError('DISCORD005',`Gateway shard ${shard} is unavailable`);local.send(packet);return null;};
+  const remote:GatewayRemote|undefined=link&&{count:shardTotal,
+    send:async(shard,packet)=>{const worker=link.workerFor(shard);if(worker<0)throw new WispError('DISCORD005',`Gateway shard ${shard} is unavailable`);await link.call(worker,'gateway',{shard,packet});},
+    broadcast:async packet=>{for(const result of await link.callAll('gateway',{shard:null,packet}))if(result.status==='rejected')log('warn',`Presence update missed a process: ${safe(result.reason)}`);}};
+  /** Every shard's status. With several processes, a process that doesn't answer in 2 seconds shows its shards as unavailable. */
+  async function allShards():Promise<ShardStatus[]>{
+    if(!link)return localShards();
+    const results=await link.callAll('shards',null);
+    return results.flatMap((result,index)=>result.status==='fulfilled'?result.value as ShardStatus[]:link.info.groups[index]!.map(id=>({id,status:'unavailable',ping:null,guilds:null}))).sort((a,b)=>a.id-b.id);
+  }
+  const botValue=record({shards:host(async()=>(await allShards()).map(shard=>record({...shard}) as Value))}) as Value;
   for(const connection of databases.connections.values())if(connection instanceof RedisDatabase)connection.onError=message=>log('warn',message);
   await storage.cleanupComponents();await storage.cleanupCooldowns(Date.now());
   const componentCleanup=setInterval(()=>{void Promise.resolve(storage.cleanupComponents()).catch(error=>{log('error',`Component cleanup: ${safe(error)}`);});void Promise.resolve(storage.cleanupCooldowns(Date.now())).catch(error=>{log('error',`Cooldown cleanup: ${safe(error)}`);});},60*60*1000);
@@ -53,11 +77,21 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
   const httpClient=new HttpClient(project.manifest.http);
   const linkMessage=async(message:unknown)=>{try{await linkSentMessage(storage,message);}catch(error){log('warn',`Could not link components to message: ${safe(error)}`);}};
   const forget=(owner:ComponentOwner,ids:string[])=>track(Promise.resolve(storage.deleteComponentsFor(owner,ids)).then(count=>{if(count)log('debug',`Removed ${count} component rows for deleted ${owner}`);},error=>{log('warn',`Component cleanup for deleted ${owner}: ${safe(error)}`);}));
-  const common=(scope:string,limits:HttpLimits={})=>({...standardGlobals({storage,db:databases.api(),discord:discordApi(client,project.root,linkMessage),log:logApi,http:httpClient},scope,limits),scheduler:record({cancel:host(async name=>{if(typeof name!=='string')throw new WispError('SCHEDULE001','Task name must be a string');const cancelled=scheduler.cancel(name);await storage.deleteTask(name);return cancelled;})}) as Value});
+  const filesValue=filesApi(project.paths.files,relative(project.root,project.paths.files).replaceAll('\\','/'));
+  const common=(scope:string,limits:HttpLimits={})=>({...standardGlobals({storage,db:databases.api(),discord:discordApi(client,project.root,linkMessage,remote),log:logApi,http:httpClient,files:filesValue},scope,limits),bot:botValue,scheduler:record({cancel:host(async name=>{if(typeof name!=='string')throw new WispError('SCHEDULE001','Task name must be a string');if(link&&!link.primary)return link.call(0,'cancel',name) as Promise<Value>;return cancelTask(name);})}) as Value});
+  const cancelTask=async(name:string)=>{const cancelled=scheduler.cancel(name);await storage.deleteTask(name);return cancelled;};
   const saveTask=(work:void|Promise<void>,name:string)=>track(Promise.resolve(work).catch(error=>{log('warn',`Could not save task ${name}: ${safe(error)}`);}));
   const runTask=(row:TaskRow,body:Stmt[])=>async(signal:AbortSignal):Promise<void>=>{const limits={deadline:Date.now()+10000,signal};const values={...common(`task:${row.name}`,limits),task:record({name:row.name,data:row.data===null?null:record(row.data)}) as Value};const work=execute(body,{values,file:row.file,timeoutMs:10000,maxSteps:10000,maxLoops:10000,signal,resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values})}).then(()=>{});track(work);await work;};
   const arm=(row:TaskRow,body:Stmt[],firstDelaySeconds:number)=>scheduler.schedule(row.name,row.intervalSeconds,row.repeat,runTask(row,body),{firstDelaySeconds,onFire:next=>saveTask(next===null?storage.deleteTask(row.name):storage.putTask({...row,fireAt:next}),row.name)});
-  const schedule=(file:string)=>(name:string,seconds:number,repeat:boolean,body:Stmt[],meta?:{template:string;data:Record<string,Value>|null})=>{const row:TaskRow={name,file,template:meta?.template??name,repeat,intervalSeconds:seconds,fireAt:Date.now()+seconds*1000,data:meta?.data??null};arm(row,body,seconds);saveTask(storage.putTask(row),name);};
+  const placeTask=(row:TaskRow,body:Stmt[])=>{arm(row,body,row.intervalSeconds);saveTask(storage.putTask(row),row.name);};
+  // With several processes, timers all run in process 0; other processes send it the task to run.
+  const schedule=(file:string)=>async(name:string,seconds:number,repeat:boolean,body:Stmt[],meta?:{template:string;data:Record<string,Value>|null})=>{const row:TaskRow={name,file,template:meta?.template??name,repeat,intervalSeconds:seconds,fireAt:Date.now()+seconds*1000,data:meta?.data??null};if(link&&!link.primary){await link.call(0,'schedule',row);return;}placeTask(row,body);};
+  if(link){
+    link.handle('schedule',payload=>{const row=payload as TaskRow,body=registry.value.tasks?.get(row.template);if(!body)throw new WispError('SCHEDULE001',`Process 0 has no after/every named "${row.template}"`);placeTask(row,body);return null;});
+    link.handle('cancel',name=>cancelTask(String(name)));
+    link.handle('shards',()=>localShards());
+    link.handle('gateway',payload=>{const {shard,packet}=payload as {shard:number|null;packet:GatewayPacket};return sendLocal(shard,packet);});
+  }
   /** Re-arm saved tasks. Runs missed while offline are skipped: one-shots are dropped and repeating tasks resume at their next interval. */
   async function restoreTasks():Promise<void>{let restored=0;for(const step of planRestore(await storage.listTasks(),registry.value.tasks,Date.now())){
     if(step.action==='drop'){log(step.reason==='missing'?'warn':'info',step.reason==='missing'?`Dropping saved task ${step.row.name}: no after/every named "${step.row.template}" exists anymore`:`Skipping task ${step.row.name}; it was due while the bot was offline`);await storage.deleteTask(step.row.name);continue;}
@@ -65,7 +99,10 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
     try{arm(step.row,step.body,step.delaySeconds);restored++;}catch(error){log('warn',`Could not restore task ${step.row.name}: ${safe(error)}`);}
   }if(restored)log('info',`Restored ${restored} saved task${restored===1?'':'s'}`);}
   async function dispatchEvent(name:string,data:Record<string,Value>):Promise<void>{if(stopped)return;const accepted=await eventGate.run(async()=>{for(const handler of registry.value.events.filter(e=>e.name===name)){try{const started=Date.now(),limits={deadline:started+10000};await execute(handler.body,{values:{...common(handler.file,limits),event:record(data) as Value},file:handler.file,schedule:schedule(handler.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:common(handler.file,limits)}),timeoutMs:10000,maxSteps:10000,maxLoops:10000});log('debug',`Event ${name} completed in ${Date.now()-started} ms`);}catch(error){log('error',`${handler.file}: ${safe(error)}`);}}});if(!accepted&&!stopped)log('warn',`Event ${name} dropped because the queue is full`);}
-  client.once('clientReady',()=>{log('info','Connected to Discord');track(restoreTasks().catch(error=>{log('error',`Could not restore saved tasks: ${safe(error)}`);}).then(()=>dispatchEvent('ready',{})));});
+  const begin=()=>track(restoreTasks().catch(error=>{log('error',`Could not restore saved tasks: ${safe(error)}`);}).then(()=>dispatchEvent('ready',{})));
+  client.once('clientReady',()=>{const count=client.ws.shards.size;log('info',`Connected to Discord with ${count} shard${count===1?'':'s'}${link?` of ${link.info.count}`:''}`);if(link)link.ready();else begin();});
+  // With several processes, process 0 restores timers and runs `on ready:` once, after every process has connected.
+  if(link?.primary)link.onAllReady(()=>{log('info','All processes connected');begin();});
   client.on('raw',packet=>{if(typeof packet.t!=='string'||!registry.value.events.some(event=>event.name===`gateway:${packet.t}`))return;try{const json=JSON.stringify(packet.d??null);if(json.length>1024*1024)throw new Error('Gateway payload exceeds limit');const data=JSON.parse(json) as Value;track(dispatchEvent(`gateway:${packet.t}`,{type:packet.t,data,sequence:typeof packet.s==='number'?packet.s:null}));}catch{log('warn',`Gateway event ${packet.t} could not be converted to Wisp data`);}});
   client.on('guildMemberAdd',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_join',{member:memberValue(member,storage)}));});
   client.on('guildMemberRemove',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_leave',{member:memberValue(member,storage)}));});
@@ -98,7 +135,7 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
       const optionValues=interaction.isChatInputCommand()?bindOptions(interaction,route.options,storage):Object.create(null) as Record<string,Value>;
       const target:Value=interaction.isUserContextMenuCommand()?(interaction.targetMember instanceof GuildMember?memberValue(interaction.targetMember,storage):userValue(interaction.targetUser)):interaction.isMessageContextMenuCommand()?messageValue(interaction.targetMessage):null;
       const author=interaction.member instanceof GuildMember?memberValue(interaction.member,storage):userValue(interaction.user);
-      const guildValue=record({id:guild.id,name:guild.name,memberCount:guild.memberCount,...guildDataApi(storage,guild.id),
+      const guildValue=record({id:guild.id,name:guild.name,memberCount:guild.memberCount,shard:shardForGuild(guild.id,shardTotal()),...guildDataApi(storage,guild.id),
         member:host(async id=>{if(typeof id!=='string')throw new WispError('RUNTIME002','member ID must be a string');try{return memberValue(await guild.members.fetch(id),storage);}catch{return null;}}),
         members:host(async()=>{const list=await ranking.roster(guild,(n,total)=>log('info',`Fetched ${n}/${total} members`));if(list.length>10000)throw new WispError('DISCORD005','Member list exceeds language limit');return list.map(rankedValue);}),
         joinRank:host(async member=>{const id=(member as Record<string,Value>)?.id;if(typeof id!=='string')throw new WispError('RUNTIME002','joinRank requires a member');return ranking.joinRank(guild,id);}),
@@ -166,7 +203,8 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
     }catch(error){if(error instanceof WispError&&error.code==='COMPONENT002'&&!response.responded){try{await response.send({content:error.message,ephemeral:true});}catch{log('warn',`Could not explain component error: ${error.message}`);}return;}const incident=Math.random().toString(36).slice(2,10);log('error',`Component incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Interaction failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Interaction unavailable or failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not acknowledge component incident ${incident}`);}}finally{response.close();}
   }
   if(dev&&reload){let pending:NodeJS.Timeout|undefined;watchers.push(watch(project.root,{recursive:true},(_event,filename)=>{const changed=String(filename??'').replaceAll('\\','/');if(!changed.endsWith('.wisp')||/^(?:dist|data|node_modules|\.wisp)\//.test(changed))return;clearTimeout(pending);pending=setTimeout(()=>{const result=registry.reload();if(result.ok){scheduler.clear();track(restoreTasks().catch(error=>{log('error',`Could not restore saved tasks: ${safe(error)}`);}).then(()=>dispatchEvent('ready',{})));log('info','Scripts reloaded; run wisp commands sync if metadata changed');}else log('error',`Reload failed; retaining prior handlers: ${safe(result.error)}`);},200);}));}
-  const stop=async()=>{if(stopped)return;stopped=true;const queued=eventGate.queued;eventGate.close();clearInterval(componentCleanup);process.off('unhandledRejection',onRejection);scheduler.close();for(const watcher of watchers)watcher.close();log('info','Shutting down');if(queued)log('warn',`${queued} queued event handlers were discarded during shutdown`);let timeout:NodeJS.Timeout|undefined;await Promise.race([Promise.allSettled([...inFlight]),new Promise<void>(resolve=>{timeout=setTimeout(resolve,5000);})]);clearTimeout(timeout);if(inFlight.size)log('warn',`${inFlight.size} handlers remain active after the shutdown timeout`);client.destroy();await databases.close();};
+  const stop=async()=>{if(stopped)return;stopped=true;const queued=eventGate.queued;eventGate.close();clearInterval(componentCleanup);process.off('unhandledRejection',onRejection);scheduler.close();for(const watcher of watchers)watcher.close();log('info','Shutting down');if(queued)log('warn',`${queued} queued event handlers were discarded during shutdown`);let timeout:NodeJS.Timeout|undefined;await Promise.race([Promise.allSettled([...inFlight]),new Promise<void>(resolve=>{timeout=setTimeout(resolve,5000);})]);clearTimeout(timeout);if(inFlight.size)log('warn',`${inFlight.size} handlers remain active after the shutdown timeout`);link?.close();await client.destroy();await databases.close();if(link&&process.connected)process.disconnect();};
   process.once('SIGINT',()=>{void stop();});process.once('SIGTERM',()=>{void stop();});
+  link?.onStop(()=>{void stop();});
   try{await client.login(project.manifest.discord.token);}catch(error){await stop();const reason=error instanceof Error&&/disallowed intents/i.test(error.message)?'; enable the privileged intents in the Developer Portal':error instanceof Error&&/token/i.test(error.message)?'; the token was rejected':'';throw new WispError('DISCORD005',`Discord login failed${reason}; check token and application configuration`);}
 }

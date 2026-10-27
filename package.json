@@ -1,6 +1,6 @@
 {
   "name": "@silverfox0338/wisp",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "A scripting language and CLI for Discord bots",
   "license": "GPL-3.0-only",
   "author": "Silverfox0338",

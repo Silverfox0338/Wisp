@@ -43,7 +43,8 @@
         ">=0.0.6 <0.0.7",
         ">=0.0.7 <0.0.8",
         ">=0.0.8 <0.0.9",
-        ">=0.0.9 <0.0.10"
+        ">=0.0.9 <0.0.10",
+        ">=0.0.10 <0.0.11"
       ],
       "description": "Compatible Wisp runtime. Older 0.0.2 through 0.0.4 projects remain accepted."
     },
@@ -95,6 +96,21 @@
             ]
           },
           "description": "Gateway intents requested at startup. Privileged intents also require Developer Portal approval."
+        },
+        "shards": {
+          "anyOf": [
+            {"const": "auto"},
+            {"type": "integer", "minimum": 1, "maximum": 1000}
+          ],
+          "default": "auto",
+          "description": "How many shards to connect. \"auto\" uses Discord's recommended count, which is 1 for small bots. Discord refuses a shard with more than 2,500 servers."
+        },
+        "processes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 1,
+          "description": "How many processes wisp run splits the shards over. Above 1 needs PostgreSQL, MySQL, or Redis storage. Timers and on ready run once, in process 0."
         },
         "commands": {
           "type": "object",
@@ -205,6 +221,18 @@
             "error"
           ],
           "description": "Minimum runtime log level."
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where files.write and the other files functions keep their files.",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "default": "./files",
+          "description": "Folder for script files. Defaults to ./files. It can't be the project root, data/, or the commands or events folder."
         }
       }
     },

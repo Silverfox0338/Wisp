@@ -2,6 +2,18 @@ import {existsSync,readFileSync,readdirSync} from 'node:fs';
 import {basename,join,relative} from 'node:path';
 import type {CompiledProject} from '../project/discovery.js';
 import type {ProjectConfig} from '../project/manifest.js';
+import type {GatewayBot} from '../discord/shards.js';
+
+/** Compare the sharding settings with Discord's recommendation. Discord refuses a shard with more than 2,500 servers, and recommends about 1,000 each. */
+export function shardReport(project:ProjectConfig,gateway:GatewayBot):{line:string;warnings:string[]}{
+  const {shards='auto',processes=1}=project.manifest.discord,recommended=gateway.shards,limit=gateway.session_start_limit,warnings:string[]=[];
+  const using=shards==='auto'?`auto (${recommended})`:String(shards);
+  if(typeof shards==='number'&&shards*2.5<recommended)warnings.push(`discord.shards is ${shards}, but Discord recommends ${recommended}; that puts more than 2,500 servers on a shard, and Discord will refuse to connect. Set discord.shards to "auto".`);
+  else if(typeof shards==='number'&&shards<recommended)warnings.push(`discord.shards is ${shards}, but Discord recommends ${recommended}. Set discord.shards to "auto" or raise it.`);
+  if(shards==='auto'&&processes>recommended)warnings.push(`discord.processes is ${processes}, but Discord recommends only ${recommended} shard${recommended===1?'':'s'}; wisp run will refuse to start. Lower discord.processes or set discord.shards.`);
+  if(limit.remaining<Math.max(10,(typeof shards==='number'?shards:recommended)*2))warnings.push(`Only ${limit.remaining} of ${limit.total} Discord sessions are left today; each shard uses one when it connects, and they reset in ${Math.ceil(limit.reset_after/3600000)} hours.`);
+  return {line:`Sharding: Discord recommends ${recommended} shard${recommended===1?'':'s'}; using ${using} in ${processes} process${processes===1?'':'es'}; ${limit.remaining} of ${limit.total} sessions left today`,warnings};
+}
 
 export function doctorWarnings(project:ProjectConfig,compiled:CompiledProject,nodeVersion=process.versions.node):string[]{
   const warnings:string[]=[];

@@ -4,7 +4,7 @@ import {tokenize,type Token} from './lexer.js';
 import {basename} from 'node:path';
 const precedence:Record<string,number>={'??':1,or:2,and:3,'==':4,'!=':4,in:4,'<':5,'<=':5,'>':5,'>=':5,'+':6,'-':6,'*':7,'/':7,'%':7};
 const assignOps=['=','+=','-=','*=','/='];
-const events=['ready','member_join','member_leave','message_create','message_update','message_delete'];
+const events=['ready','member_join','member_leave','message_create','message_update','message_delete','shard_ready','shard_disconnect','shard_reconnecting','shard_resume'];
 export function parse(source:string,file='<source>'):Module {return new Parser(tokenize(source,file),file).parse();}
 class Parser {
   private i=0;

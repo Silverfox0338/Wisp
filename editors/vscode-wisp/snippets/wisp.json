@@ -270,5 +270,42 @@
       "reply \"You now have {user.data.${1:coins}} ${1:coins}\""
     ],
     "description": "Save a number for this member"
+  },
+  "Status command": {
+    "prefix": "status",
+    "body": [
+      "command \"${1:status}\":",
+      "    description \"${2:Show each shard and its ping}\"",
+      "    execute:",
+      "        let lines = []",
+      "        for shard in bot.shards():",
+      "            lines.append(\"Shard {shard.id}: {shard.status}, {shard.ping} ms, {shard.guilds} servers\")",
+      "        let text = lines.join(\"\\n\")",
+      "        reply \"{text}\\nThis server is on shard {guild.shard}\"$0"
+    ],
+    "description": "Show every shard with its status and ping"
+  },
+  "Ticket transcript": {
+    "prefix": "transcript",
+    "body": [
+      "command \"${1:close}\":",
+      "    description \"${2:Close this ticket and post its transcript}\"",
+      "    option log:",
+      "        type: channel",
+      "        required: true",
+      "    execute:",
+      "        let t = discord.transcript(interaction.channelId, {\"format\": \"${3|html,text|}\"})",
+      "        discord.send(options.log.id, \"Transcript of {t.messages} messages\", {}, [t])",
+      "        reply \"${4:Ticket closed}\"$0"
+    ],
+    "description": "Post a channel's transcript to a log channel without saving a file"
+  },
+  "Shard event": {
+    "prefix": "onshard",
+    "body": [
+      "on ${1|shard_disconnect,shard_ready,shard_reconnecting,shard_resume|}:",
+      "    log.warn(\"Shard {event.shard}: $1\")$0"
+    ],
+    "description": "Run code when a shard connects, drops, or resumes"
   }
 }

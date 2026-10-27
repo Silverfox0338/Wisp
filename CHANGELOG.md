@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.10
+
+- Bots now connect with Discord's recommended number of shards, so they keep working past 2,500 servers. Existing projects need no changes. Set `discord.shards` in `wisp.json` to a number to choose the count yourself.
+- Added `discord.processes` to split the shards over several processes when you run `wisp run`. It needs PostgreSQL, MySQL, or Redis storage. Timers and `on ready:` run once, in process 0, and a process that crashes is restarted. `wisp dev` always runs one process.
+- Added the `shard_ready`, `shard_disconnect`, `shard_reconnecting`, and `shard_resume` events, with `event.shard`, and `event.code` for a disconnect.
+- Added `bot.shards()`, which lists every shard's `id`, `status`, `ping`, and server count, and `guild.shard`, the shard a server is on.
+- `discord.gateway` now picks the shard by itself when you leave out the shard ID. A presence update goes to every shard, and member, voice, soundboard, and channel requests go to the shard of their server. Before, they always went to shard 0.
+- `wisp doctor` shows Discord's recommended shard count and the sessions left today, and warns when the settings would put too many servers on one shard.
+- Commands and events can now live in subfolders, such as `commands/economy/daily.wisp`. Before, files in subfolders were ignored without a warning. Folders whose names start with a dot are skipped.
+- Added `discord.transcript(channelId)`, which turns a channel's messages into an HTML page or, with `"format": "text"`, plain text. It returns `{name, text, format, messages}`.
+- `discord.send` and the other file uploads accept `{"name": "notes.txt", "text": "..."}` maps, so a transcript or any text can be posted without saving a file.
+- Added `files.write`, `files.append`, `files.read`, `files.exists`, `files.delete`, and `files.list` for text files in the project's `files/` folder (`files.directory` in `wisp.json`). Paths can't leave that folder, files are limited to 8 MiB, and scripts can't write `.wisp` files. `wisp test` gives each test file its own temporary folder, and `mock.calls()` shows uploaded files. New projects ignore `files/` in git.
+- Test scripts gain `mock.shards([...])`. `bot.shards()` starts as one ready shard.
+- New projects use runtime `>=0.0.10 <0.0.11`. Older projects keep working.
+
+## VS Code extension 0.1.1
+
+- Supports Wisp 0.0.10: the `shards`, `processes`, and `files` settings in `wisp.json`, completion for `bot`, `files`, `discord.transcript`, `guild.shard`, and the shard events, and "Status command", "Shard event", and "Ticket transcript" snippets.
+
 ## VS Code extension 0.1.0
 
 - The extension now has its own version number. 0.1.0 supports Wisp 0.0.9.

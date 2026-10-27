@@ -6,6 +6,11 @@ import {readFile,realpath,stat} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,basename} from 'node:path';
 import {permissionApi} from './permissions.js';
 import {referenceApi} from './reference.js';
+import {shardForGuild} from './shards.js';
+
+export interface GatewayPacket {op:number;d:unknown}
+/** Reaches shards that run in other processes. */
+export interface GatewayRemote {count():number;send(shard:number,packet:GatewayPacket):Promise<void>;broadcast(packet:GatewayPacket):Promise<void>}
 
 const methods=new Set(['GET','POST','PUT','PATCH','DELETE']);
 const routePattern=/^\/[a-z0-9_@%.\-/]+$/i;
@@ -72,8 +77,47 @@ function plain(value:Value,label:string):unknown {
   return JSON.parse(json) as unknown;
 }
 
+type RawMessage={id?:unknown;content?:unknown;timestamp?:unknown;edited_timestamp?:unknown;author?:{username?:unknown;global_name?:unknown;bot?:unknown};mentions?:{id?:unknown;username?:unknown;global_name?:unknown}[];attachments?:{filename?:unknown;url?:unknown}[];embeds?:{title?:unknown;description?:unknown}[];sticker_items?:{name?:unknown}[]};
+const said=(value:unknown)=>typeof value==='string'?value:'';
+const authorName=(author:{username?:unknown;global_name?:unknown}|undefined)=>said(author?.global_name)||said(author?.username)||'Unknown user';
+const stamp=(value:unknown)=>{const time=Date.parse(said(value));return Number.isFinite(time)?`${new Date(time).toISOString().slice(0,16).replace('T',' ')} UTC`:'unknown time';};
+const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]!);
+/** Message text with user mentions shown as @name, plus its embeds, stickers, and attachments. */
+function messageParts(message:RawMessage){
+  const names=new Map((message.mentions??[]).map(user=>[said(user.id),authorName(user)]));
+  const content=said(message.content).replace(/<@!?(\d+)>/g,(raw,id:string)=>names.has(id)?`@${names.get(id)}`:raw);
+  const embeds=(message.embeds??[]).map(embed=>({title:said(embed.title),description:said(embed.description)})).filter(embed=>embed.title||embed.description);
+  const stickers=(message.sticker_items??[]).map(sticker=>said(sticker.name)).filter(Boolean);
+  const attachments=(message.attachments??[]).map(file=>({name:said(file.filename)||'file',url:/^https:\/\//.test(said(file.url))?said(file.url):''}));
+  return {author:authorName(message.author),bot:message.author?.bot===true,time:stamp(message.timestamp),edited:message.edited_timestamp!=null,content,embeds,stickers,attachments};
+}
+function transcriptText(title:string,channelId:string,messages:RawMessage[]):string{
+  const lines=[title,`${messages.length} messages from channel ${channelId}, saved ${stamp(new Date().toISOString())}`,''];
+  for(const message of messages){
+    const part=messageParts(message);
+    lines.push(`[${part.time}] ${part.author}${part.bot?' [bot]':''}: ${part.content}${part.edited?' (edited)':''}`);
+    for(const embed of part.embeds)lines.push(`    embed: ${[embed.title,embed.description].filter(Boolean).join(' - ')}`);
+    for(const sticker of part.stickers)lines.push(`    sticker: ${sticker}`);
+    for(const file of part.attachments)lines.push(`    attachment: ${file.name}${file.url?` ${file.url}`:''}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+function transcriptHtml(title:string,channelId:string,messages:RawMessage[]):string{
+  const items=messages.map(message=>{
+    const part=messageParts(message);
+    const embeds=part.embeds.map(embed=>`<div class="embed">${embed.title?`<strong>${escapeHtml(embed.title)}</strong>`:''}${embed.description?`<p>${escapeHtml(embed.description)}</p>`:''}</div>`).join('');
+    const extras=[...part.stickers.map(sticker=>`<li>Sticker: ${escapeHtml(sticker)}</li>`),...part.attachments.map(file=>`<li>${file.url?`<a href="${escapeHtml(file.url)}">${escapeHtml(file.name)}</a>`:escapeHtml(file.name)}</li>`)].join('');
+    return `<article><div class="meta"><span class="author">${escapeHtml(part.author)}</span>${part.bot?'<span class="tag">BOT</span>':''}<time>${part.time}${part.edited?' (edited)':''}</time></div>${part.content?`<div class="content">${escapeHtml(part.content)}</div>`:''}${embeds}${extras?`<ul>${extras}</ul>`:''}</article>`;
+  }).join('\n');
+  const style=':root{color-scheme:light dark;--bg:#ffffff;--text:#1f2328;--muted:#656d76;--line:#d0d7de;--accent:#5865f2}@media (prefers-color-scheme:dark){:root{--bg:#1e1f22;--text:#e3e5e8;--muted:#949ba4;--line:#3f4147}}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif}header,main{max-width:860px;margin:0 auto;padding:16px}header{border-bottom:1px solid var(--line)}h1{margin:0 0 4px;font-size:20px}header p,time{color:var(--muted);font-size:13px}article{padding:8px 0;border-bottom:1px solid var(--line)}.meta{display:flex;gap:8px;align-items:baseline}.author{font-weight:600}.tag{background:var(--accent);color:#fff;border-radius:3px;padding:0 4px;font-size:11px}.content{white-space:pre-wrap;overflow-wrap:anywhere}.embed{border-left:4px solid var(--accent);padding:4px 10px;margin:6px 0}.embed p{margin:4px 0 0;white-space:pre-wrap}ul{margin:4px 0;padding-left:20px}a{color:var(--accent)}';
+  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${style}</style></head><body><header><h1>${escapeHtml(title)}</h1><p>${messages.length} messages from channel ${escapeHtml(channelId)}, saved ${stamp(new Date().toISOString())}</p></header><main>\n${items}\n</main></body></html>\n`;
+}
+
+/** Where paths that start with the files folder name are read from; wisp test points it at a temporary folder. */
+export interface FilesFolder {prefix:string;root:string}
+
 /** onMessage receives messages created or edited through REST, for example to link component rows. */
-export function discordApi(client:Client,projectRoot?:string,onMessage?:(message:unknown)=>Promise<void>):Value {
+export function discordApi(client:Client,projectRoot?:string,onMessage?:(message:unknown)=>Promise<void>,remote?:GatewayRemote,filesFolder?:FilesFolder):Value {
   const request=host(async(method,path,body=null,query=null,reason=null,files=null)=>{
     if(typeof method!=='string'||!methods.has(method.toUpperCase()))throw new WispError('DISCORD005','Discord method must be GET, POST, PUT, PATCH, or DELETE');
     if(typeof path!=='string'||path.length>2048||!routePattern.test(path)||path.includes('//')||path.split('/').includes('..')||path.split('/').includes('.'))throw new WispError('DISCORD005','Discord path must be a relative /api/v10 route without query or fragment');
@@ -81,15 +125,25 @@ export function discordApi(client:Client,projectRoot?:string,onMessage?:(message
     if(reason!==null&&(typeof reason!=='string'||reason.length>512))throw new WispError('DISCORD005','Audit log reason must be a string of at most 512 characters');
     const uploads:{name:string;data:Buffer;key?:string}[]=[];
     if(files!==null){
-      if(!projectRoot||!Array.isArray(files)||files.length>10)throw new WispError('DISCORD005','Files must be a list of at most 10 project-relative paths');
-      const root=await realpath(projectRoot);
+      if(!Array.isArray(files)||files.length>10)throw new WispError('DISCORD005','Files must be a list of at most 10 project-relative paths or {"name", "text"} maps');
       for(const file of files){
         const descriptor=file&&typeof file==='object'&&!Array.isArray(file)?file as Record<string,unknown>:null;
-        const path=typeof file==='string'?file:descriptor?.path;
         const key=descriptor?.key;
-        if(typeof path!=='string'||!path||isAbsolute(path)||path.includes('\0'))throw new WispError('DISCORD005','File path must be project-relative');
         if(key!==undefined&&(typeof key!=='string'||!/^[A-Za-z][A-Za-z0-9_]*$/.test(key)))throw new WispError('DISCORD005','Multipart file key must be a simple name');
-        const target=resolve(root,path),actual=await realpath(target).catch(()=>{throw new WispError('DISCORD005','Upload file is unavailable');});
+        if(descriptor&&descriptor.text!==undefined){
+          const name=descriptor.name,text=descriptor.text;
+          if(typeof name!=='string'||!/^[\w][\w .-]{0,99}$/.test(name))throw new WispError('DISCORD005','File name must be 1 to 100 letters, digits, spaces, dots, dashes, or underscores, such as "transcript.html"');
+          if(typeof text!=='string'||Buffer.byteLength(text)>25*1024*1024)throw new WispError('DISCORD005','File text must be text no larger than 25 MiB');
+          uploads.push({name,data:Buffer.from(text,'utf8'),...(key?{key}:{})});
+          continue;
+        }
+        const path=typeof file==='string'?file:descriptor?.path;
+        if(!projectRoot)throw new WispError('DISCORD005','Files must be {"name", "text"} maps here');
+        if(typeof path!=='string'||!path||isAbsolute(path)||path.includes('\0'))throw new WispError('DISCORD005','File path must be project-relative');
+        const normal=path.replaceAll('\\','/').replace(/^\.\//,'');
+        const inFiles=filesFolder&&normal.startsWith(`${filesFolder.prefix}/`);
+        const root=await realpath(inFiles?filesFolder.root:projectRoot).catch(()=>{throw new WispError('DISCORD005','Upload file is unavailable');});
+        const target=resolve(root,inFiles?normal.slice(filesFolder.prefix.length+1):path),actual=await realpath(target).catch(()=>{throw new WispError('DISCORD005','Upload file is unavailable');});
         const rel=relative(root,actual);
         if(rel.startsWith('..')||isAbsolute(rel))throw new WispError('DISCORD005','Upload file escapes project root');
         const info=await stat(actual);
@@ -124,18 +178,45 @@ export function discordApi(client:Client,projectRoot?:string,onMessage?:(message
     }
   });
   const resources=referenceApi(request);
-  return record({...resources,gateway:host((opcode,data,shardId=0)=>{
+  const shardCount=()=>remote?.count()??client.options?.shardCount??client.ws.shards.size??1;
+  const sendTo=async(shardId:number,packet:GatewayPacket):Promise<void>=>{const shard=client.ws.shards.get(shardId);if(shard){shard.send(packet);return;}if(remote&&shardId<remote.count()){await remote.send(shardId,packet);return;}throw new WispError('DISCORD005',`Gateway shard ${shardId} is unavailable`);};
+  // With no shard ID, a presence update goes to every shard and a guild request goes to that guild's shard.
+  return record({...resources,gateway:host(async(opcode,data,shardId=null)=>{
     if(typeof opcode!=='number'||![3,4,8,31,43].includes(opcode))throw new WispError('DISCORD005','Gateway opcode must be 3, 4, 8, 31, or 43');
-    if(typeof shardId!=='number'||!Number.isSafeInteger(shardId)||shardId<0)throw new WispError('DISCORD005','Shard ID must be a nonnegative integer');
-    const shard=client.ws.shards.get(shardId);
-    if(!shard)throw new WispError('DISCORD005',`Gateway shard ${shardId} is unavailable`);
-    shard.send({op:opcode,d:plain(data,'Gateway payload')});
-    return null;
+    const packet={op:opcode,d:plain(data,'Gateway payload')};
+    if(shardId!==null){if(typeof shardId!=='number'||!Number.isSafeInteger(shardId)||shardId<0)throw new WispError('DISCORD005','Shard ID must be a nonnegative integer');await sendTo(shardId,packet);return null;}
+    if(opcode===3){for(const shard of client.ws.shards.values())shard.send(packet);await remote?.broadcast(packet);return null;}
+    const payload=(packet.d&&typeof packet.d==='object'?packet.d:{}) as Record<string,unknown>;
+    if(opcode===31&&Array.isArray(payload.guild_ids)){const byShard=new Map<number,string[]>();for(const id of payload.guild_ids){if(typeof id!=='string')throw new WispError('DISCORD005','guild_ids must be a list of guild ID strings');const shard=shardForGuild(id,shardCount());byShard.set(shard,[...byShard.get(shard)??[],id]);}for(const [shard,ids] of byShard)await sendTo(shard,{op:opcode,d:{...payload,guild_ids:ids}});return null;}
+    if(typeof payload.guild_id!=='string')throw new WispError('DISCORD005',`Gateway opcode ${opcode} needs data.guild_id to pick a shard, or pass a shard ID`);
+    await sendTo(shardForGuild(payload.guild_id,shardCount()),packet);return null;
   }),request,
   channel:host((guildId,name,settings={},reason=null)=>request.call('POST',`/guilds/${snowflake(guildId,'Guild ID')}/channels`,namedOptions(name,settings,'Channel'),null,reason)),
   role:host((guildId,name,settings={},reason=null)=>request.call('POST',`/guilds/${snowflake(guildId,'Guild ID')}/roles`,namedOptions(name,settings,'Role'),null,reason)),
   thread:host((channelId,name,settings={},reason=null)=>request.call('POST',`/channels/${snowflake(channelId,'Channel ID')}/threads`,namedOptions(name,settings,'Thread'),null,reason)),
   send:host((channelId,content,settings={},files=null)=>request.call('POST',`/channels/${snowflake(channelId,'Channel ID')}/messages`,textOptions(content,settings),null,null,files)),
+  transcript:host(async(channelId,settings={})=>{
+    const channel=snowflake(channelId,'Channel ID'),input=options(settings,'Transcript settings') as Record<string,Value>;
+    for(const key of Object.keys(input))if(!['format','limit','name','title'].includes(key))throw new WispError('DISCORD005',`Unknown transcript setting ${key}; use format, limit, name, or title`);
+    const format=input.format??'html',limit=input.limit??1000,title=input.title??'Transcript';
+    if(format!=='html'&&format!=='text')throw new WispError('DISCORD005','Transcript format must be "html" or "text"');
+    if(typeof limit!=='number'||!Number.isInteger(limit)||limit<1||limit>10000)throw new WispError('DISCORD005','Transcript limit must be a whole number from 1 to 10000');
+    if(typeof title!=='string'||title.length>200)throw new WispError('DISCORD005','Transcript title must be text of at most 200 characters');
+    const name=input.name??`transcript-${channel}.${format==='html'?'html':'txt'}`;
+    if(typeof name!=='string'||!/^[\w][\w .-]{0,99}$/.test(name))throw new WispError('DISCORD005','Transcript name must be 1 to 100 letters, digits, spaces, dots, dashes, or underscores');
+    const messages:RawMessage[]=[];let before:string|null=null;
+    while(messages.length<limit){
+      const size=Math.min(100,limit-messages.length);
+      const page=await request.call('GET',`/channels/${channel}/messages`,null,{limit:size,...(before?{before}:{})});
+      if(!Array.isArray(page)||!page.length)break;
+      messages.push(...page as RawMessage[]);
+      before=said((page[page.length-1] as RawMessage).id)||null;
+      if(page.length<size||!before)break;
+    }
+    messages.reverse();
+    const text=format==='html'?transcriptHtml(title,channel,messages):transcriptText(title,channel,messages);
+    return {name,text,format,messages:messages.length};
+  }),
   editMessage:host((channelId,messageId,content,settings={},files=null)=>request.call('PATCH',`/channels/${snowflake(channelId,'Channel ID')}/messages/${snowflake(messageId,'Message ID')}`,textOptions(content,settings),null,null,files)),
   deleteMessage:host((channelId,messageId,reason=null)=>request.call('DELETE',`/channels/${snowflake(channelId,'Channel ID')}/messages/${snowflake(messageId,'Message ID')}`,null,null,reason)),
   dm:host(async(userId,content,settings={})=>{

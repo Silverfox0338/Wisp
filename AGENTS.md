@@ -56,7 +56,7 @@ my-bot/
   data/              the SQLite database (don't edit by hand)
 ```
 
-A file in `commands/` must hold exactly one `command`. Helper `function`s, `let`, and `import` lines can sit above it. Put shared helpers in a module, and mark what other files can use with `export function` or `export let`. Use it with `import "../utils/shop.wisp"`, then call `shop.price(...)`.
+A file in `commands/` must hold exactly one `command`, and a file in `events/` exactly one event. Subfolders such as `commands/economy/` are fine. Helper `function`s, `let`, and `import` lines can sit above it. Put shared helpers in a module, and mark what other files can use with `export function` or `export let`. Use it with `import "../utils/shop.wisp"`, then call `shop.price(...)`.
 
 ## The loop to follow
 
@@ -110,8 +110,11 @@ Things to know:
 - **Errors**: `try:` with `catch error:`, and `raise "message"`.
 - **Saved data**: `user.data.field` saves per member, `guild.data.field` per server, and `guild.top("coins", 10)` gives a leaderboard. A missing field reads as `null`, so write `user.data.coins ?? 0` when you need a number. Data fields are one level deep: change a saved map by saving the whole map again.
 - **Replies**: `reply "text"`, `reply "text" ephemeral: true` for a private reply, and `reply:` blocks with `embed:`, `row:`, `button`, `select`, `roles:`, and `pages:`.
-- **Events**: `on ready:`, `on member_join:`, `on message_create:`, and `on button "id":` for button clicks.
+- **Events**: `on ready:`, `on member_join:`, `on message_create:`, `on button "id":` for button clicks, and `on shard_disconnect:` and the other shard events.
+- **Shards**: Wisp shards by itself. `bot.shards()` lists them and `guild.shard` is a server's shard. Don't write sharding code; set `discord.processes` in `wisp.json` only for very large bots.
 - **Timers**: `after "name" 10 seconds:` and `every "name" 60 seconds:`.
+- **Files**: `files.write("notes/a.txt", text)`, `files.read`, `files.append`, `files.list`, and others work only inside the `files/` folder.
+- **Transcripts**: `let t = discord.transcript(channel_id)` gives `{name, text}`. `discord.send(channel_id, "Log", {}, [t])` posts it with nothing saved to disk.
 
 ## When you're unsure
 

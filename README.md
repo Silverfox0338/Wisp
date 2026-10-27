@@ -49,6 +49,8 @@ wisp run
 
 `wisp commands sync` registers your slash commands. `wisp run` connects the bot but does not change remote commands. Use `wisp dev` while editing to reload valid scripts. More detail is in the [wiki](https://github.com/Silverfox0338/Wisp/wiki).
 
+Put each command in its own file under `commands/` and each event under `events/`. Subfolders are fine, such as `commands/economy/daily.wisp`. Wisp skips folders whose names start with a dot. Shared helpers go in modules anywhere in the project, such as `utils/shop.wisp`, and other files load them with `import`.
+
 ## What you can build
 
 - Slash commands with typed options, permissions, embeds, and replies.
@@ -246,6 +248,68 @@ reply:
 ```
 
 Roles a member picks are added. The menu's other roles are removed from them. Use `pick: one` to allow a single role. The bot needs **Manage Roles**, and its highest role must be above the menu roles. No handler or database row is needed.
+
+## Sharding
+
+Discord splits a big bot's servers into shards, each with its own connection, and refuses a shard with more than 2,500 servers. Wisp connects with Discord's recommended number of shards, so a bot keeps working as it grows. Small bots get one shard, and nothing changes for them.
+
+Scripts can see the shards. In `commands/status.wisp`:
+
+```wisp
+command "status":
+    description "Show each shard"
+    execute:
+        let lines = []
+        for shard in bot.shards():
+            lines.append("Shard {shard.id}: {shard.status}, {shard.ping} ms, {shard.guilds} servers")
+        let text = lines.join("\n")
+        reply "{text}\nThis server is on shard {guild.shard}"
+```
+
+And in `events/shards.wisp`:
+
+```wisp
+on shard_disconnect:
+    log.warn("Shard {event.shard} dropped with code {event.code}")
+```
+
+The shard events are `shard_ready`, `shard_disconnect`, `shard_reconnecting`, and `shard_resume`. `discord.gateway` picks the right shard when you leave out the shard ID: a presence update goes to every shard, and a member request goes to its server's shard.
+
+A very large bot can split its shards over several processes:
+
+```json
+"discord": {
+  "shards": "auto",
+  "processes": 4
+}
+```
+
+`shards` is `"auto"` or a number. `wisp run` then starts the processes one after another and restarts any that crash. Several processes need PostgreSQL, MySQL, or Redis storage, because SQLite allows one process. Timers and `on ready:` still run once, in process 0, and `on shard_ready:` runs for each shard. `wisp dev` always runs one process. `wisp doctor` shows Discord's recommended shard count.
+
+## Files and transcripts
+
+`discord.transcript` turns a channel's messages into an HTML page, or plain text with `"format": "text"`. Post it as an attachment and nothing is saved on the bot's computer:
+
+```wisp
+command "close":
+    description "Close this ticket and post its transcript"
+    option log:
+        type: channel
+        required: true
+    execute:
+        let t = discord.transcript(interaction.channelId)
+        discord.send(options.log.id, "Transcript of {t.messages} messages", {}, [t])
+        reply "Ticket closed"
+```
+
+Any `{"name": "notes.txt", "text": "..."}` map can be sent the same way. To keep a copy, save it with `files.write`:
+
+```wisp
+let path = files.write("transcripts/{t.name}", t.text)
+files.append("closed.txt", "{t.name}\n")
+```
+
+`files.write`, `files.append`, `files.read`, `files.exists`, `files.delete`, and `files.list` only work inside the `files/` folder. Set `files.directory` in `wisp.json` to use another folder. Paths can't leave that folder, files are limited to 8 MiB, and scripts can't write `.wisp` files. `files.write` returns a path that `discord.send` accepts. `wisp test` uses a temporary folder, so tests never touch your real files.
 
 ## Formatting and editor help
 
