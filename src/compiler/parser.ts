@@ -1,11 +1,14 @@
 import {WispError} from '../diagnostics.js';
-import type {CommandDecl,ComponentDecl,Cooldown,EventDecl,Expr,Module,OptionDecl,Stmt,SubcommandDecl,V2Node} from './ast.js';
+import type {AssignOp,CommandDecl,ComponentDecl,Cooldown,EventDecl,Expr,Module,OptionDecl,Stmt,SubcommandDecl,V2Node} from './ast.js';
 import {tokenize,type Token} from './lexer.js';
 import {basename} from 'node:path';
-const precedence:Record<string,number>={'??':1,or:2,and:3,'==':4,'!=':4,'<':5,'<=':5,'>':5,'>=':5,'+':6,'-':6,'*':7,'/':7};
+const precedence:Record<string,number>={'??':1,or:2,and:3,'==':4,'!=':4,in:4,'<':5,'<=':5,'>':5,'>=':5,'+':6,'-':6,'*':7,'/':7,'%':7};
+const assignOps=['=','+=','-=','*=','/='];
 export function parse(source:string,file='<source>'):Module {return new Parser(tokenize(source,file),file).parse();}
 class Parser {
   private i=0;
+  /** How many for/while bodies enclose the statement being parsed; break and continue need one. */
+  private loops=0;
   constructor(private readonly tokens:Token[],private readonly file:string){}
   private peek(n=0):Token{return this.tokens[this.i+n] ?? this.tokens[this.tokens.length-1]!;}
   private at(value:string):boolean {const t=this.peek();return t.type===value||t.value===value;}
@@ -13,7 +16,10 @@ class Parser {
   private expect(value:string):Token{if(!this.at(value))this.fail(`Expected ${value}, found ${this.peek().value || this.peek().type}`);return this.take();}
   private fail(message:string):never{const t=this.peek();throw new WispError('PARSE002',message,this.file,t.line,t.column);}
   private newline():void{this.expect('NEWLINE');}
-  private block<T>(fn:()=>T):T[]{this.expect(':');this.newline();this.expect('INDENT');const out:T[]=[];while(!this.at('DEDENT')&&!this.at('EOF'))out.push(fn());this.expect('DEDENT');if(!out.length)this.fail('Block must contain at least one statement');return out;}
+  private block<T>(fn:()=>T):T[]{if(this.at('=')&&this.peek(1).type!=='=')this.fail('Use == to compare');if(!this.at(':'))this.fail(`Expected : at the end of the line, found ${this.peek().value||this.peek().type}`);this.take();this.newline();this.expect('INDENT');const out:T[]=[];while(!this.at('DEDENT')&&!this.at('EOF'))out.push(fn());this.expect('DEDENT');if(!out.length)this.fail('Block must contain at least one statement');return out;}
+  private loopBody():Stmt[]{this.loops++;try{return this.block(()=>this.statement());}finally{this.loops--;}}
+  /** A body that runs later or elsewhere, so break and continue cannot reach an enclosing loop. */
+  private isolatedBody():Stmt[]{const saved=this.loops;this.loops=0;try{return this.block(()=>this.statement());}finally{this.loops=saved;}}
   parse():Module{const m:Module={commands:[],events:[],statements:[]};while(!this.at('EOF')){if(this.at('command'))m.commands.push(this.command());else if((this.at('user')||this.at('message'))&&this.peek(1).value==='command')m.commands.push(this.command(this.peek().value as 'user'|'message'));else if(this.at('event')||this.at('on'))m.events.push(this.event());else m.statements.push(this.statement());}return m;}
   private command(type?:'user'|'message'):CommandDecl{if(type)this.take();const start=this.take();const name=this.stringLiteral();const subcommands:SubcommandDecl[]=[];const sections=this.block(()=>{
     if(this.at('description')){this.take();const value=this.stringLiteral();this.newline();return {kind:'description' as const,value};}
@@ -107,27 +113,39 @@ class Parser {
       const key=this.expect('IDENT').value,field=key==='text'?'content':key;this.expect(':');if(Object.hasOwn(fields,field)||(field==='embed'&&embedFields))this.fail(`Duplicate reply field ${key}`);fields[field]=this.expression();this.newline();return key;
     });return {fields,components,...(embedFields?{embedFields}:{})};
   }
-  private statement():Stmt{const t=this.peek();if(this.at('let')){this.take();const name=this.expect('IDENT').value;this.expect('=');const expr=this.expression();this.newline();return {kind:'let',name,expr,line:t.line,column:t.column};}
+  private statement():Stmt{const t=this.peek();
+    if((this.at('break')||this.at('continue'))&&this.peek(1).type==='NEWLINE'){if(!this.loops)this.fail(`${t.value} only works inside for or while`);this.take();this.newline();return {kind:t.value as 'break'|'continue',line:t.line,column:t.column};}
+    if(this.at('match')&&!['NEWLINE',':','.','(','[',...assignOps].includes(this.peek(1).type))return this.match();
+if(this.at('let')){this.take();const name=this.expect('IDENT').value;this.expect('=');const expr=this.expression();this.newline();return {kind:'let',name,expr,line:t.line,column:t.column};}
     if(this.at('import')){this.take();const source=this.stringLiteral();if(!source.endsWith('.wisp'))this.fail('Import path must end in .wisp');let alias=basename(source,'.wisp');if(this.at('as')){this.take();alias=this.expect('IDENT').value;}if(!/^[A-Za-z_][A-Za-z_0-9]*$/.test(alias))this.fail('Import needs a valid alias');this.newline();return {kind:'import',source,alias,line:t.line,column:t.column};}
     if(this.at('export')){this.take();if(!this.at('let')&&!this.at('function'))this.fail('export requires let or function');const declaration=this.statement();if(declaration.kind!=='let'&&declaration.kind!=='function')this.fail('Invalid export');return {...declaration,exported:true};}
-    if(this.at('every')||this.at('after')){const repeat=this.take().value==='every';const name=this.stringLiteral();const seconds=this.expression();this.expect('seconds');let data:Expr|undefined;if(this.at('with')){this.take();data=this.expression();}return {kind:'schedule',name,seconds,repeat,...(data?{data}:{}),body:this.block(()=>this.statement()),line:t.line,column:t.column};}
+    if(this.at('every')||this.at('after')){const repeat=this.take().value==='every';const name=this.stringLiteral();const seconds=this.expression();this.expect('seconds');let data:Expr|undefined;if(this.at('with')){this.take();data=this.expression();}return {kind:'schedule',name,seconds,repeat,...(data?{data}:{}),body:this.isolatedBody(),line:t.line,column:t.column};}
     if(this.at('show')){this.take();if(!this.at('modal'))this.fail('Expected modal after show');return {kind:'show_modal',component:this.component(),line:t.line,column:t.column};}
     if(this.at('global')){this.take();const name=this.expect('IDENT').value;this.expect('=');const expr=this.expression();this.newline();return {kind:'global',name,expr,line:t.line,column:t.column};}
-    if(this.at('function')){this.take();const name=this.expect('IDENT').value;this.expect('(');const params:{name:string;defaultValue?:Expr}[]=[];let optional=false;while(!this.at(')')){const param=this.expect('IDENT').value;if(params.some(p=>p.name===param))this.fail(`Duplicate parameter ${param}`);let defaultValue:Expr|undefined;if(this.at('=')){this.take();defaultValue=this.expression();optional=true;}else if(optional)this.fail('Required parameters must precede default parameters');params.push({name:param,defaultValue});if(!this.at(')'))this.expect(',');}this.expect(')');return {kind:'function',name,params,body:this.block(()=>this.statement()),line:t.line,column:t.column};}
+    if(this.at('function')){this.take();const name=this.expect('IDENT').value;this.expect('(');const params:{name:string;defaultValue?:Expr}[]=[];let optional=false;while(!this.at(')')){const param=this.expect('IDENT').value;if(params.some(p=>p.name===param))this.fail(`Duplicate parameter ${param}`);let defaultValue:Expr|undefined;if(this.at('=')){this.take();defaultValue=this.expression();optional=true;}else if(optional)this.fail('Required parameters must precede default parameters');params.push({name:param,defaultValue});if(!this.at(')'))this.expect(',');}this.expect(')');return {kind:'function',name,params,body:this.isolatedBody(),line:t.line,column:t.column};}
     if(this.at('try')){this.take();const body=this.block(()=>this.statement());const caught=this.expect('catch');const errorName=this.expect('IDENT').value;return {kind:'try',body,errorName,catchBody:this.block(()=>this.statement()),catchLine:caught.line,line:t.line,column:t.column};}
     if(this.at('raise')){this.take();const expr=this.expression();this.newline();return {kind:'raise',expr,line:t.line,column:t.column};}
     if(this.at('return')){this.take();const expr=this.at('NEWLINE')?undefined:this.expression();this.newline();return {kind:'return',expr,line:t.line,column:t.column};}
     if(this.at('if')){this.take();const condition=this.expression();const then=this.block(()=>this.statement());let otherwise:Stmt[]=[];if(this.at('elif')){otherwise=[this.statement()];}else if(this.at('else')){this.take();otherwise=this.block(()=>this.statement());}return {kind:'if',condition,then,otherwise,line:t.line,column:t.column};}
     if(this.at('elif')){this.take();const condition=this.expression();const then=this.block(()=>this.statement());let otherwise:Stmt[]=[];if(this.at('elif'))otherwise=[this.statement()];else if(this.at('else')){this.take();otherwise=this.block(()=>this.statement());}return {kind:'if',condition,then,otherwise,line:t.line,column:t.column};}
-    if(this.at('for')){this.take();const name=this.expect('IDENT').value;this.expect('in');const iterable=this.expression();return {kind:'for',name,iterable,body:this.block(()=>this.statement()),line:t.line,column:t.column};}
-    if(this.at('while')){this.take();const condition=this.expression();return {kind:'while',condition,body:this.block(()=>this.statement()),line:t.line,column:t.column};}
+    if(this.at('for')){this.take();const name=this.expect('IDENT').value;this.expect('in');const iterable=this.expression();return {kind:'for',name,iterable,body:this.loopBody(),line:t.line,column:t.column};}
+    if(this.at('while')){this.take();const condition=this.expression();return {kind:'while',condition,body:this.loopBody(),line:t.line,column:t.column};}
     if(this.at('reply')){this.take();if(this.at('v2')){this.take();let ephemeral:Expr|undefined;const v2:V2Node[]=[];this.block(()=>{if(this.at('ephemeral')){this.take();this.expect(':');if(ephemeral)this.fail('Duplicate V2 ephemeral field');ephemeral=this.expression();this.newline();return 'ephemeral';}v2.push(this.v2Node());return 'component';});if(!v2.length)this.fail('V2 reply requires a component');return {kind:'reply',v2,ephemeral,line:t.line,column:t.column};}if(this.at('v1')){this.take();return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};}if(this.at('embed')){this.take();const fields=this.block(()=>{const key=this.expect('IDENT').value;this.expect(':');const expr=this.expression();this.newline();return [key,expr] as const;});return {kind:'reply',embed:Object.fromEntries(fields),line:t.line,column:t.column};}if(this.at(':'))return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};const expr=this.expression();let ephemeral:Expr|undefined;if(this.at('ephemeral')){this.take();this.expect(':');ephemeral=this.expression();}this.newline();return {kind:'reply',expr,ephemeral,line:t.line,column:t.column};}
-    if(this.at('IDENT')&&this.peek(1).type==='='){const name=this.take().value;this.take();const expr=this.expression();this.newline();return {kind:'assign',name,expr,line:t.line,column:t.column};}
-    const expr=this.expression();this.newline();return {kind:'expr',expr,line:t.line,column:t.column};}
+    const expr=this.expression();
+    if(assignOps.includes(this.peek().type)){const op=this.take().type as '='|AssignOp;const value=this.expression();this.newline();
+      if(expr.kind==='name')return {kind:'assign',name:expr.name,expr:value,...(op==='='?{}:{op}),line:t.line,column:t.column};
+      if(expr.kind==='property'||expr.kind==='index')return {kind:'set',target:expr,op,expr:value,line:t.line,column:t.column};
+      throw new WispError('PARSE002','Only names, fields, and list items can be assigned',this.file,t.line,t.column);}
+    this.newline();return {kind:'expr',expr,line:t.line,column:t.column};}
+  /** `match value:` followed by `when a, b:` branches and an optional final `else:`. */
+  private match():Stmt{const t=this.take();const subject=this.expression();this.expect(':');this.newline();this.expect('INDENT');const cases:{values:Expr[];body:Stmt[];line:number}[]=[];let otherwise:Stmt[]|undefined;
+    while(!this.at('DEDENT')&&!this.at('EOF')){if(otherwise)this.fail('else must be the last branch of match');const branch=this.peek();if(this.at('else')){this.take();otherwise=this.block(()=>this.statement());continue;}if(!this.at('when'))this.fail('Each match branch starts with when or else');this.take();const values=[this.expression()];while(this.at(',')){this.take();values.push(this.expression());}cases.push({values,body:this.block(()=>this.statement()),line:branch.line});}
+    this.expect('DEDENT');if(!cases.length)this.fail('match needs at least one when branch');return {kind:'match',subject,cases,otherwise:otherwise??[],line:t.line,column:t.column};}
   private expression(min=0):Expr{let left=this.prefix();while(true){const t=this.peek();if(this.at('.')&&9>=min){this.take();left={kind:'property',object:left,name:this.expect('IDENT').value,line:t.line,column:t.column};continue;}
       if(this.at('(')&&9>=min){this.take();const args:Expr[]=[];while(!this.at(')')){args.push(this.expression());if(!this.at(')'))this.expect(',');}this.take();left={kind:'call',callee:left,args,line:t.line,column:t.column};continue;}
       if(this.at('[')&&9>=min){this.take();const index=this.expression();this.expect(']');left={kind:'index',object:left,index,line:t.line,column:t.column};continue;}
-      const p=precedence[t.value];if(p===undefined||p<min)break;this.take();left={kind:'binary',op:t.value,left,right:this.expression(p+1),line:t.line,column:t.column};}return left;}
+      if(this.at('not')&&this.peek(1).value==='in'&&4>=min){this.take();this.take();left={kind:'binary',op:'not in',left,right:this.expression(5),line:t.line,column:t.column};continue;}
+      const p=t.type==='STRING'?undefined:precedence[t.value];if(p===undefined||p<min)break;this.take();left={kind:'binary',op:t.value,left,right:this.expression(p+1),line:t.line,column:t.column};}return left;}
   private prefix():Expr{const t=this.take();if(t.type==='STRING'){this.i--;return {kind:'literal',value:this.stringLiteral(),line:t.line,column:t.column};}
     if(t.type==='NUMBER')return {kind:'literal',value:Number(t.value),line:t.line,column:t.column};
     if(t.value==='true'||t.value==='false'||t.value==='null')return {kind:'literal',value:t.value==='null'?null:t.value==='true',line:t.line,column:t.column};

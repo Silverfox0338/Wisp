@@ -8,8 +8,13 @@ export type Expr =
   | {kind:'property'; object:Expr; name:string; line:number; column:number}
   | {kind:'index'; object:Expr; index:Expr; line:number; column:number}
   | {kind:'call'; callee:Expr; args:Expr[]; line:number; column:number};
+/** Compound assignment operators; `x += 1` means `x = x + 1`. */
+export type AssignOp='+='|'-='|'*='|'/=';
 export type Stmt =
-  | {kind:'let'|'assign'; name:string; expr:Expr; exported?:boolean; line:number; column:number}
+  | {kind:'let'|'assign'; name:string; expr:Expr; op?:AssignOp; exported?:boolean; line:number; column:number}
+  | {kind:'set'; target:Extract<Expr,{kind:'property'|'index'}>; op:'='|AssignOp; expr:Expr; line:number; column:number}
+  | {kind:'break'|'continue'; line:number; column:number}
+  | {kind:'match'; subject:Expr; cases:{values:Expr[]; body:Stmt[]; line:number}[]; otherwise:Stmt[]; line:number; column:number}
   | {kind:'global'; name:string; expr:Expr; line:number; column:number}
   | {kind:'if'; condition:Expr; then:Stmt[]; otherwise:Stmt[]; line:number; column:number}
   | {kind:'for'; name:string; iterable:Expr; body:Stmt[]; line:number; column:number}

@@ -1,6 +1,6 @@
 import {WispError} from '../diagnostics.js';
 export interface Token {type:string; value:string; line:number; column:number}
-const ops = ['==','!=','<=','>=','??','+','-','*','/','<','>','=','.',':',',','(',')','[',']','{','}'];
+const ops = ['==','!=','<=','>=','??','+=','-=','*=','/=','+','-','*','/','%','<','>','=','.',':',',','(',')','[',']','{','}'];
 export function tokenize(source:string, file='<source>'):Token[] {
   const tokens:Token[]=[]; const indents=[0]; const lines=source.replace(/\r\n?/g,'\n').split('\n');let nesting=0;
   for(let li=0;li<lines.length;li++) {
