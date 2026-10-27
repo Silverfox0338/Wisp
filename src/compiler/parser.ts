@@ -1,5 +1,5 @@
 import {WispError} from '../diagnostics.js';
-import type {AssignOp,CommandDecl,ComponentDecl,Cooldown,EventDecl,Expr,Module,OptionDecl,Stmt,SubcommandDecl,V2Node} from './ast.js';
+import type {AssignOp,PagesDecl,RoleMenu,CommandDecl,ComponentDecl,Cooldown,EventDecl,Expr,Module,OptionDecl,Stmt,SubcommandDecl,V2Node} from './ast.js';
 import {tokenize,type Token} from './lexer.js';
 import {basename} from 'node:path';
 const precedence:Record<string,number>={'??':1,or:2,and:3,'==':4,'!=':4,in:4,'<':5,'<=':5,'>':5,'>=':5,'+':6,'-':6,'*':7,'/':7,'%':7};
@@ -100,9 +100,12 @@ class Parser {
     return this.fail('Expected container, markdown, text, separator, section, or row in V2 reply');
   }
   private markdownValue():Expr{this.expect('markdown');this.expect(':');if(!this.at('NEWLINE')){const value=this.expression();this.newline();return value;}this.newline();this.expect('INDENT');const raw=this.expect('RAW_TEXT');this.newline();this.expect('DEDENT');return {kind:'literal',value:raw.value,line:raw.line,column:raw.column};}
-  private replyLayout():{fields:Record<string,Expr>;components:ComponentDecl[];embedFields?:Record<string,Expr>}{
-    const fields:Record<string,Expr>={},components:ComponentDecl[]=[];let embedFields:Record<string,Expr>|undefined;
+  private replyLayout():{fields:Record<string,Expr>;components:ComponentDecl[];embedFields?:Record<string,Expr>;roles?:RoleMenu}{
+    const start=this.peek();const fields:Record<string,Expr>={},components:ComponentDecl[]=[];let embedFields:Record<string,Expr>|undefined,roles:RoleMenu|undefined,pick:'one'|'many'|undefined;
+    const layout=()=>({fields,components,...(embedFields?{embedFields}:{}),...(roles?{roles:{...roles,pick:pick??'many'}}:{})});
     this.block(()=>{
+      if(this.at('roles')&&this.peek(1).type===':'&&this.peek(2).type==='NEWLINE'){if(roles)this.fail('Reply can have only one roles menu');const at=this.take();const choices=this.block(()=>{const label=this.stringLiteral();this.expect(':');const role=this.expression();this.newline();return {label,role};});if(choices.length>25)this.fail('A roles menu holds at most 25 roles');roles={choices,pick:'many',line:at.line};return 'roles';}
+      if(this.at('pick')&&this.peek(1).type===':'){this.take();this.take();const value=this.stringLiteralOrIdent();if(value!=='one'&&value!=='many')this.fail('pick must be one or many');pick=value;this.newline();return 'pick';}
       if(this.at('row')){this.take();components.push(...this.block(()=>{if(!['button','select','user_select','role_select','channel_select'].some(key=>this.at(key)))this.fail('Row requires a button or select');return this.component();}));return 'row';}
       if(['button','select','user_select','role_select','channel_select'].some(key=>this.at(key))){components.push(this.component());return 'component';}
       if(this.at('embed')&&this.peek(1).type===':'&&this.peek(2).type==='NEWLINE'){
@@ -111,8 +114,16 @@ class Parser {
       if(this.at('markdown')){if(fields.content)this.fail('Reply content is already set');fields.content=this.markdownValue();return 'markdown';}
       if(this.at('container')||this.at('section')||this.at('separator'))this.fail('This layout needs reply v2:');
       const key=this.expect('IDENT').value,field=key==='text'?'content':key;this.expect(':');if(Object.hasOwn(fields,field)||(field==='embed'&&embedFields))this.fail(`Duplicate reply field ${key}`);fields[field]=this.expression();this.newline();return key;
-    });return {fields,components,...(embedFields?{embedFields}:{})};
+    });if(pick&&!roles)throw new WispError('PARSE002','pick needs a roles: menu in the same reply',this.file,start.line,start.column);return layout();
   }
+  private pages():PagesDecl{const start=this.peek();const fields:Record<string,Expr>={};let each:PagesDecl['each']|undefined;
+    this.block(()=>{
+      if(this.at('each')){if(each)this.fail('reply pages has only one each');this.take();const name=this.expect('IDENT').value;const lines=this.block(()=>{const expr=this.expression();this.newline();return expr;});if(lines.length!==1)this.fail('each holds one line of text, like "{item.name}"');each={name,line:lines[0]!};return 'each';}
+      const key=this.expect('IDENT').value;if(!['items','per_page','title','color','empty','ephemeral'].includes(key))this.fail(`Unknown pages field ${key}; use items, per_page, title, color, empty, ephemeral, or each`);if(Object.hasOwn(fields,key))this.fail(`Duplicate pages field ${key}`);this.expect(':');fields[key]=this.expression();this.newline();return key;
+    });
+    if(!fields.items)throw new WispError('PARSE002','reply pages needs items: with the list to show',this.file,start.line,start.column);
+    if(!each)throw new WispError('PARSE002','reply pages needs an each item: line',this.file,start.line,start.column);
+    return {fields,each,line:start.line};}
   private statement():Stmt{const t=this.peek();
     if((this.at('break')||this.at('continue'))&&this.peek(1).type==='NEWLINE'){if(!this.loops)this.fail(`${t.value} only works inside for or while`);this.take();this.newline();return {kind:t.value as 'break'|'continue',line:t.line,column:t.column};}
     if(this.at('match')&&!['NEWLINE',':','.','(','[',...assignOps].includes(this.peek(1).type))return this.match();
@@ -130,7 +141,7 @@ if(this.at('let')){this.take();const name=this.expect('IDENT').value;this.expect
     if(this.at('elif')){this.take();const condition=this.expression();const then=this.block(()=>this.statement());let otherwise:Stmt[]=[];if(this.at('elif'))otherwise=[this.statement()];else if(this.at('else')){this.take();otherwise=this.block(()=>this.statement());}return {kind:'if',condition,then,otherwise,line:t.line,column:t.column};}
     if(this.at('for')){this.take();const name=this.expect('IDENT').value;this.expect('in');const iterable=this.expression();return {kind:'for',name,iterable,body:this.loopBody(),line:t.line,column:t.column};}
     if(this.at('while')){this.take();const condition=this.expression();return {kind:'while',condition,body:this.loopBody(),line:t.line,column:t.column};}
-    if(this.at('reply')){this.take();if(this.at('v2')){this.take();let ephemeral:Expr|undefined;const v2:V2Node[]=[];this.block(()=>{if(this.at('ephemeral')){this.take();this.expect(':');if(ephemeral)this.fail('Duplicate V2 ephemeral field');ephemeral=this.expression();this.newline();return 'ephemeral';}v2.push(this.v2Node());return 'component';});if(!v2.length)this.fail('V2 reply requires a component');return {kind:'reply',v2,ephemeral,line:t.line,column:t.column};}if(this.at('v1')){this.take();return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};}if(this.at('embed')){this.take();const fields=this.block(()=>{const key=this.expect('IDENT').value;this.expect(':');const expr=this.expression();this.newline();return [key,expr] as const;});return {kind:'reply',embed:Object.fromEntries(fields),line:t.line,column:t.column};}if(this.at(':'))return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};const expr=this.expression();let ephemeral:Expr|undefined;if(this.at('ephemeral')){this.take();this.expect(':');ephemeral=this.expression();}this.newline();return {kind:'reply',expr,ephemeral,line:t.line,column:t.column};}
+    if(this.at('reply')){this.take();if(this.at('pages')&&this.peek(1).type===':'){this.take();return {kind:'reply',pages:this.pages(),line:t.line,column:t.column};}if(this.at('v2')){this.take();let ephemeral:Expr|undefined;const v2:V2Node[]=[];this.block(()=>{if(this.at('ephemeral')){this.take();this.expect(':');if(ephemeral)this.fail('Duplicate V2 ephemeral field');ephemeral=this.expression();this.newline();return 'ephemeral';}v2.push(this.v2Node());return 'component';});if(!v2.length)this.fail('V2 reply requires a component');return {kind:'reply',v2,ephemeral,line:t.line,column:t.column};}if(this.at('v1')){this.take();return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};}if(this.at('embed')){this.take();const fields=this.block(()=>{const key=this.expect('IDENT').value;this.expect(':');const expr=this.expression();this.newline();return [key,expr] as const;});return {kind:'reply',embed:Object.fromEntries(fields),line:t.line,column:t.column};}if(this.at(':'))return {kind:'reply',layout:this.replyLayout(),line:t.line,column:t.column};const expr=this.expression();let ephemeral:Expr|undefined;if(this.at('ephemeral')){this.take();this.expect(':');ephemeral=this.expression();}this.newline();return {kind:'reply',expr,ephemeral,line:t.line,column:t.column};}
     const expr=this.expression();
     if(assignOps.includes(this.peek().type)){const op=this.take().type as '='|AssignOp;const value=this.expression();this.newline();
       if(expr.kind==='name')return {kind:'assign',name:expr.name,expr:value,...(op==='='?{}:{op}),line:t.line,column:t.column};

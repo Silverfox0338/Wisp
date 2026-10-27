@@ -4,7 +4,7 @@ import {commandRoute,componentIndex,findCommand,findComponentHandler,type Compil
 import type {ProjectConfig} from '../project/manifest.js';
 import {ReloadableProject} from '../project/reload.js';
 import {moduleResolver} from '../project/modules.js';
-import {execute,host,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
+import {ROLE_MENU,execute,host,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
 import {standardGlobals} from '../runtime/globals.js';
 import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
 import {HttpClient,type HttpLimits} from '../runtime/http.js';
@@ -16,7 +16,9 @@ import type {OptionDecl,Stmt} from '../compiler/ast.js';
 import {suggestionChoices,suggestTimeoutMs} from './suggest.js';
 import {checkCooldown} from './cooldowns.js';
 import {RankingService,type RankedMember} from './ranking.js';
-import {ResponseState} from './responses.js';
+import {ResponseState,buildEmbed} from './responses.js';
+import {PAGE_ID,startPages,turnPage} from './pages.js';
+import {roleChanges,roleSummary} from './roles.js';
 import {ComponentRegistry,linkSentMessage} from './components.js';
 import type {ComponentOwner,StorageBackend,TaskRow} from '../storage/types.js';
 import {commandPermissions} from './permissions.js';
@@ -108,7 +110,7 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
         defer:host(async(ephemeral=true)=>{await response.defer(ephemeral!==false);return null;}),
         followUp:host(async(content,ephemeral=false)=>{if(typeof content==='string')await response.followUp({content,ephemeral:ephemeral===true});else if(content&&typeof content==='object'&&!Array.isArray(content))await response.followUp({v2:content as Record<string,Value>,ephemeral:ephemeral===true});else throw new WispError('RUNTIME002','followUp requires text or a V2 message');return null;})
       }) as Value;
-      const started=Date.now(),trace=dev?new ExecutionTrace(label):undefined;const values={...common(command.name,{deadline:Date.now()+(command.timeoutMs??15000)}),interaction:interactionValue,user:author,options:record(optionValues) as Value,target,guild:guildValue,ui:uiApi(components,async modal=>response.showModal(await components.buildModal(modal)))};const reply:NonNullable<ExecutionContext['reply']>=async body=>response.send({...body,components:body.rawComponents?body.rawComponents as unknown as Awaited<ReturnType<ComponentRegistry['buildRows']>>:body.components?.length?await components.buildRows(body.components):undefined});try{await execute(route.execute,{values,file:command.file,reply,showModal:async modal=>response.showModal(await components.buildModal(modal)),schedule:schedule(command.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values,reply}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});}finally{if(trace)log('info',`Trace for ${label}: ${writeTrace(project.root,trace).html}`);}
+      const started=Date.now(),trace=dev?new ExecutionTrace(label):undefined;const values={...common(command.name,{deadline:Date.now()+(command.timeoutMs??15000)}),interaction:interactionValue,user:author,options:record(optionValues) as Value,target,guild:guildValue,ui:uiApi(components,async modal=>response.showModal(await components.buildModal(modal)))};const reply:NonNullable<ExecutionContext['reply']>=async body=>respond(response,components,body,guild.id,interaction.user.id);try{await execute(route.execute,{values,file:command.file,reply,showModal:async modal=>response.showModal(await components.buildModal(modal)),schedule:schedule(command.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values,reply}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});}finally{if(trace)log('info',`Trace for ${label}: ${writeTrace(project.root,trace).html}`);}
       await response.finish();log('debug',`Command ${label} completed in ${Date.now()-started} ms`);
     }catch(error){const incident=Math.random().toString(36).slice(2,10);log('error',`${command?.file??'<registry>'}: Incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Command failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Command failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not send incident ${incident}`);}}finally{response.close();}}
   async function handleSuggest(interaction:AutocompleteInteraction):Promise<void>{
@@ -128,12 +130,28 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
     }catch(error){log('error',`Suggestions for /${interaction.commandName} failed: ${safe(error)}`);}
     try{await interaction.respond(choices);}catch(error){log('warn',`Could not send suggestions: ${safe(error)}`);}
   }
+  type Rows=Awaited<ReturnType<ComponentRegistry['buildRows']>>;
+  /** Sends a script's reply; a `reply pages:` list is saved and opens on its first page. */
+  async function respond(response:ResponseState,components:ComponentRegistry,body:Parameters<NonNullable<ExecutionContext['reply']>>[0],guildId:string,userId:string):Promise<void>{
+    if(body.pages){const page=await startPages(storage,body.pages,guildId,userId);return response.send({embed:page.embed,ephemeral:body.ephemeral,components:page.components as unknown as Rows});}
+    return response.send({...body,components:body.rawComponents?body.rawComponents as unknown as Rows:body.components?.length?await components.buildRows(body.components):undefined});
+  }
+  /** The built-in handler behind `roles:` menus. */
+  async function pickRoles(interaction:StringSelectMenuInteraction,response:ResponseState):Promise<void>{
+    const member=interaction.member;if(!(member instanceof GuildMember))throw new WispError('COMPONENT002','Role menus work only in servers');
+    const changes=roleChanges(interaction.component.options.map(option=>option.value),interaction.values,[...member.roles.cache.keys()]);
+    try{if(changes.add.length)await member.roles.add(changes.add,'Wisp role menu');if(changes.remove.length)await member.roles.remove(changes.remove,'Wisp role menu');}
+    catch{throw new WispError('COMPONENT002','I cannot change those roles. Give me Manage Roles and move my role above the menu roles.');}
+    await response.send({content:roleSummary(changes,id=>interaction.guild?.roles.cache.get(id)?.name??id),ephemeral:true});
+  }
   type ComponentInteraction=ButtonInteraction|StringSelectMenuInteraction|UserSelectMenuInteraction|RoleSelectMenuInteraction|ChannelSelectMenuInteraction|ModalSubmitInteraction;
   async function handleComponent(interaction:ComponentInteraction):Promise<void>{
     const response=new ResponseState(interaction as unknown as ConstructorParameters<typeof ResponseState>[0],undefined,undefined,linkMessage);
     const kind=interaction.isButton()?'button':interaction.isStringSelectMenu()?'select':interaction.isUserSelectMenu()?'user_select':interaction.isRoleSelectMenu()?'role_select':interaction.isChannelSelectMenu()?'channel_select':'modal';
     try{
       if(interaction.applicationId!==project.manifest.discord.application_id)throw new WispError('COMPONENT002','Application mismatch');
+      if(interaction.isButton()&&PAGE_ID.test(interaction.customId)){const page=await turnPage(storage,interaction.customId,interaction.guildId,interaction.user.id);await interaction.update({embeds:[buildEmbed(page.embed)],components:page.components as never});return;}
+      if(interaction.isStringSelectMenu()&&interaction.customId===`sl:select:${ROLE_MENU}`){await pickRoles(interaction,response);await response.finish();return;}
       const components=new ComponentRegistry(storage,interaction.guildId??'',interaction.user.id);
       const state=await components.resolve(interaction.customId,kind,interaction.guildId,interaction.user.id);
       const handler=findComponentHandler(registry.value.events,kind,state.name);
@@ -143,9 +161,9 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
       if(interaction.isModalSubmit())for(const field of interaction.fields.fields.values())if('value' in field&&typeof field.value==='string')inputFields[field.customId]=field.value;
       const interactionValue=record({user:userValue(interaction.user),guildId:interaction.guildId,channelId:interaction.channelId,kind,name:state.name,index:componentIndex(handler,state.name),values,fields:record(inputFields),state:record(state.state)}) as Value;
       const handlerValues={...common(`component:${state.name}`,{deadline:Date.now()+15000}),interaction:interactionValue,ui:uiApi(components,async modal=>response.showModal(await components.buildModal(modal)))};
-      const reply:NonNullable<ExecutionContext['reply']>=async body=>response.send({...body,components:body.rawComponents?body.rawComponents as unknown as Awaited<ReturnType<ComponentRegistry['buildRows']>>:body.components?.length?await components.buildRows(body.components):undefined});await execute(handler.body,{values:handlerValues,file:handler.file,reply,showModal:async modal=>response.showModal(await components.buildModal(modal)),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:handlerValues,reply}),timeoutMs:15000,maxSteps:10000,maxLoops:10000});
+      const reply:NonNullable<ExecutionContext['reply']>=async body=>respond(response,components,body,interaction.guildId??'',interaction.user.id);await execute(handler.body,{values:handlerValues,file:handler.file,reply,showModal:async modal=>response.showModal(await components.buildModal(modal)),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:handlerValues,reply}),timeoutMs:15000,maxSteps:10000,maxLoops:10000});
       await response.finish();
-    }catch(error){const incident=Math.random().toString(36).slice(2,10);log('error',`Component incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Interaction failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Interaction unavailable or failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not acknowledge component incident ${incident}`);}}finally{response.close();}
+    }catch(error){if(error instanceof WispError&&error.code==='COMPONENT002'&&!response.responded){try{await response.send({content:error.message,ephemeral:true});}catch{log('warn',`Could not explain component error: ${error.message}`);}return;}const incident=Math.random().toString(36).slice(2,10);log('error',`Component incident ${incident}: ${safe(error)}`);try{if(response.responded)await response.followUp({content:`Interaction failed. Incident ${incident}`,ephemeral:true});else await response.send({content:`Interaction unavailable or failed. Incident ${incident}`,ephemeral:true});}catch{log('error',`Could not acknowledge component incident ${incident}`);}}finally{response.close();}
   }
   if(dev&&reload){let pending:NodeJS.Timeout|undefined;watchers.push(watch(project.root,{recursive:true},(_event,filename)=>{const changed=String(filename??'').replaceAll('\\','/');if(!changed.endsWith('.wisp')||/^(?:dist|data|node_modules|\.wisp)\//.test(changed))return;clearTimeout(pending);pending=setTimeout(()=>{const result=registry.reload();if(result.ok){scheduler.clear();track(restoreTasks().catch(error=>{log('error',`Could not restore saved tasks: ${safe(error)}`);}).then(()=>dispatchEvent('ready',{})));log('info','Scripts reloaded; run wisp commands sync if metadata changed');}else log('error',`Reload failed; retaining prior handlers: ${safe(result.error)}`);},200);}));}
   const stop=async()=>{if(stopped)return;stopped=true;const queued=eventGate.queued;eventGate.close();clearInterval(componentCleanup);process.off('unhandledRejection',onRejection);scheduler.close();for(const watcher of watchers)watcher.close();log('info','Shutting down');if(queued)log('warn',`${queued} queued event handlers were discarded during shutdown`);let timeout:NodeJS.Timeout|undefined;await Promise.race([Promise.allSettled([...inFlight]),new Promise<void>(resolve=>{timeout=setTimeout(resolve,5000);})]);clearTimeout(timeout);if(inFlight.size)log('warn',`${inFlight.size} handlers remain active after the shutdown timeout`);client.destroy();await databases.close();};

@@ -26,8 +26,12 @@ export type Stmt =
   | {kind:'schedule'; name:string; seconds:Expr; repeat:boolean; data?:Expr; body:Stmt[]; line:number; column:number}
   | {kind:'show_modal'; component:ComponentDecl; line:number; column:number}
   | {kind:'return'; expr?:Expr; line:number; column:number}
-  | {kind:'reply'; expr?:Expr; embed?:Record<string,Expr>; layout?:{fields:Record<string,Expr>;components:ComponentDecl[];embedFields?:Record<string,Expr>}; v2?:V2Node[]; ephemeral?:Expr; line:number; column:number}
+  | {kind:'reply'; expr?:Expr; embed?:Record<string,Expr>; layout?:{fields:Record<string,Expr>;components:ComponentDecl[];embedFields?:Record<string,Expr>;roles?:RoleMenu}; v2?:V2Node[]; pages?:PagesDecl; ephemeral?:Expr; line:number; column:number}
   | {kind:'expr'; expr:Expr; line:number; column:number};
+/** `roles:` inside `reply:`; members pick roles from a select menu. */
+export interface RoleMenu {choices:{label:string; role:Expr}[]; pick:'one'|'many'; line:number}
+/** `reply pages:`; each item becomes one line, split into pages with ◀ ▶ buttons. */
+export interface PagesDecl {fields:Record<string,Expr>; each:{name:string; line:Expr}; line:number}
 export interface OptionDecl { name:string; type:string; description:string; required:boolean; choices?:string[]; min?:number; max?:number; suggest?:Stmt[]; line:number }
 export interface Cooldown {seconds:number; per:'user'|'guild'|'channel'}
 export interface SubcommandDecl {name:string; description:string; group?:string; groupDescription?:string; options:OptionDecl[]; execute:Stmt[]; cooldown?:Cooldown; line:number}

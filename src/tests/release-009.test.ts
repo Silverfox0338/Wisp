@@ -8,7 +8,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Storage} from '../storage/sqlite.js';
 import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
-import {record} from '../runtime/interpreter.js';
+import {ROLE_MENU,record,type RuntimeComponent} from '../runtime/interpreter.js';
+import {PAGE_ID,startPages,turnPage} from '../discord/pages.js';
+import {roleChanges,roleSummary} from '../discord/roles.js';
+import {ComponentRegistry,statefulComponentIds} from '../discord/components.js';
 
 async function run(source:string,values:Record<string,Value>={}):Promise<Value>{
   let result:Value=null;
@@ -118,3 +121,64 @@ test('guild.top ranks members by a numeric data field',()=>withStorage(async db=
   assert.deepEqual(top.map(row=>[row.rank,row.id,row.value,row.mention]),[[1,'b',12,'<@b>'],[2,'d',12,'<@d>'],[3,'c',7,'<@c>']]);
   await assert.rejects(run('return guild.top("coins", 0)\n',{guild}),/top count must be 1 to 100/);
 }));
+
+test('reply pages renders every line and splits it into pages',async()=>{
+  let body:Record<string,unknown>|undefined;
+  const source='let shop = []\nfor i in range(1, 8):\n    shop[len(shop)] = {"name": "Item {i}", "price": i * 10}\nreply pages:\n    items: shop\n    per_page: 3\n    title: "Shop"\n    each item:\n        "{index}. **{item.name}** costs {item.price}"\n';
+  await execute(parse(source).statements,{values:{},reply:async result=>{body=result as Record<string,unknown>;}});
+  const pages=(body?.pages as {pages:string[];title:string});
+  assert.equal(pages.title,'Shop');
+  assert.equal(pages.pages.length,3);
+  assert.equal(pages.pages[0],'1. **Item 1** costs 10\n2. **Item 2** costs 20\n3. **Item 3** costs 30');
+  assert.equal(pages.pages[2],'7. **Item 7** costs 70');
+  assert.equal(body?.ephemeral,false);
+  let empty:Record<string,unknown>|undefined;
+  await execute(parse('reply pages:\n    items: []\n    empty: "No items"\n    each item:\n        item\n').statements,{values:{},reply:async result=>{empty=result as Record<string,unknown>;}});
+  assert.deepEqual((empty?.pages as {pages:string[]}).pages,['No items']);
+  await assert.rejects(execute(parse('reply pages:\n    items: [1]\n    each item:\n        item\n').statements,{values:{},reply:async()=>{}}),/each must produce text/);
+  await assert.rejects(execute(parse('reply pages:\n    items: ["a"]\n    per_page: 50\n    each item:\n        item\n').statements,{values:{},reply:async()=>{}}),/per_page must be a whole number from 1 to 25/);
+  assert.throws(()=>parse('reply pages:\n    items: [1]\n'),/needs an each item: line/);
+  assert.throws(()=>parse('reply pages:\n    items: [1]\n    size: 3\n    each item:\n        "x"\n'),/Unknown pages field size/);
+});
+
+test('saved page lists turn pages for their owner only',()=>withStorage(async db=>{
+  const list={title:'Shop',pages:['one','two','three']};
+  const first=await startPages(db,list,'g1','u1');
+  assert.deepEqual(first.embed,{title:'Shop',description:'one',footer:'Page 1 of 3'});
+  const buttons=((first.components![0] as Record<string,Value>).components as Record<string,Value>[]);
+  assert.deepEqual(buttons.map(button=>button.disabled),[true,false]);
+  const next=buttons[1]!.custom_id as string;
+  assert.match(next,PAGE_ID);
+  assert.deepEqual(statefulComponentIds(first.components),[`ss:${PAGE_ID.exec(next)![1]}`]);
+  const second=await turnPage(db,next,'g1','u1');
+  assert.equal(second.embed.description,'two');
+  await assert.rejects(turnPage(db,next,'g1','u2'),/belongs to someone else/);
+  await assert.rejects(turnPage(db,next,'g2','u1'),/scope mismatch/);
+  await db.deleteComponentsFor('guild',['g1']);
+  await assert.rejects(turnPage(db,next,'g1','u1'),/This list has expired/);
+  assert.equal((await startPages(db,{pages:['only']},'g1','u1')).components,undefined);
+  await assert.rejects(startPages(db,{pages:['x'.repeat(9000),'y'.repeat(9000)]},'g1','u1'),/too large to save/);
+}));
+
+test('roles menus become a stateless select and pick changes roles',()=>withStorage(async db=>{
+  let body:Record<string,unknown>|undefined;
+  const source='reply:\n    text: "Pick your pings"\n    roles:\n        "News": "111111111111111111"\n        "Events": "222222222222222222"\n    pick: many\n';
+  await execute(parse(source).statements,{values:{},reply:async result=>{body=result as Record<string,unknown>;}});
+  const [menu]=body?.components as RuntimeComponent[];
+  assert.equal(menu!.name,ROLE_MENU);
+  assert.deepEqual(menu!.fields,{placeholder:'Choose your roles',min:0,max:2});
+  assert.deepEqual(menu!.choices!.map(choice=>[choice.value,choice.fields.label]),[['111111111111111111','News'],['222222222222222222','Events']]);
+  const rows=await new ComponentRegistry(db,'g1','u1').buildRows([menu!]);
+  assert.equal((rows[0]!.toJSON().components[0] as {custom_id:string}).custom_id,`sl:select:${ROLE_MENU}`);
+  await assert.rejects(execute(parse('reply:\n    roles:\n        "News": "news"\n').statements,{values:{},reply:async()=>{}}),/must be a role ID/);
+  assert.throws(()=>parse('reply:\n    text: "x"\n    pick: one\n'),/pick needs a roles: menu/);
+  assert.deepEqual(roleChanges(['a','b','c'],['a','x'],['b','z']),{add:['a'],remove:['b']});
+  assert.equal(roleSummary({add:['a'],remove:['b']},id=>id.toUpperCase()),'Added A, removed B');
+  assert.equal(roleSummary({add:[],remove:['b']},id=>id),'Removed b');
+  assert.equal(roleSummary({add:[],remove:[]},id=>id),'No changes; you already have those roles');
+}));
+
+test('editor understands pages and roles',()=>{
+  const source='let shop = []\nreply pages:\n    items: shop\n    each item:\n        "{index}: {item}"\nreply:\n    roles:\n        "News": "1"\n';
+  assert.deepEqual(analyze(source,'pages.wisp').diagnostics,[]);
+});

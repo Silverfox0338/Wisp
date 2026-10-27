@@ -1,6 +1,7 @@
 import {randomBytes} from 'node:crypto';
 import {ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelSelectMenuBuilder,ModalBuilder,RoleSelectMenuBuilder,StringSelectMenuBuilder,TextInputBuilder,TextInputStyle,UserSelectMenuBuilder,type MessageActionRowComponentBuilder} from 'discord.js';
 import {WispError} from '../diagnostics.js';
+import {PAGE_ID} from './pages.js';
 import type {RuntimeComponent,Value} from '../runtime/interpreter.js';
 import type {StorageBackend,ComponentState} from '../storage/types.js';
 
@@ -19,6 +20,7 @@ export function statefulComponentIds(value:unknown,found=new Set<string>(),depth
   if(!item||typeof item!=='object')return [...found];
   const record=item as Record<string,unknown>,id=record.custom_id??record.customId;
   if(typeof id==='string'&&STATEFUL_ID.test(id))found.add(id);
+  const page=typeof id==='string'?PAGE_ID.exec(id):null;if(page)found.add(`ss:${page[1]}`);
   for(const key of ['components','accessory'])if(record[key])statefulComponentIds(record[key],found,depth+1);
   return [...found];
 }
