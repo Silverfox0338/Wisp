@@ -28,7 +28,7 @@ function publish(document:TextDocument):void{
       if(sameFile(file,openFile)||!candidateRoot||!sameFile(candidateRoot,root))continue;
       let other;
       try{other=analyze(readFileSync(file,'utf8'),file);}catch{continue;}
-      for(const command of localCommands)if(other.definitions.some(item=>item.kind==='command'&&item.name===command.name))diagnostics.push({range:command.range,message:`Duplicate command ${command.name} in ${file}`,severity:DiagnosticSeverity.Error,code:'COMMAND003',source:'Wisp'});
+      for(const command of localCommands)if(other.definitions.some(item=>item.kind==='command'&&item.name===command.name&&item.type===command.type))diagnostics.push({range:command.range,message:`Duplicate command ${command.name} in ${file}`,severity:DiagnosticSeverity.Error,code:'COMMAND003',source:'Wisp'});
     }
   }
   connection.sendDiagnostics({uri:document.uri,diagnostics});

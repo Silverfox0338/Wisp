@@ -60,3 +60,13 @@ test('editor completion reads exported functions from a local Wisp module',()=>{
     assert.ok(!suggestions.some(item=>item.label==='hidden'));
   }finally{rmSync(temporary,{recursive:true,force:true});}
 });
+
+test('editor keeps command names apart from variables',()=>{
+  const body='    description "Season info"\n    execute:\n        reply "hi"\n';
+  for(const declaration of ['let season = 1\n','function season():\n    return 1\n'])
+    assert.deepEqual(analyze(declaration+'command "season":\n'+body,'season.wisp').diagnostics,[]);
+  assert.deepEqual(analyze('command "season":\n    description "x"\n    execute:\n        global season = 1\n        reply "hi"\n','season.wisp').diagnostics,[]);
+  assert.deepEqual(analyze('command "season":\n'+body+'user command "season":\n    execute:\n        reply "hi"\n','season.wisp').diagnostics,[]);
+  const twice=analyze('command "season":\n'+body+'command "season":\n'+body,'season.wisp').diagnostics;
+  assert.deepEqual(twice.map(item=>[item.code,item.message]),[['EDITOR003','Duplicate command season']]);
+});
