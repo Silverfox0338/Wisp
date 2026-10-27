@@ -70,3 +70,10 @@ test('editor keeps command names apart from variables',()=>{
   const twice=analyze('command "season":\n'+body+'command "season":\n'+body,'season.wisp').diagnostics;
   assert.deepEqual(twice.map(item=>[item.code,item.message]),[['EDITOR003','Duplicate command season']]);
 });
+
+test('editor lets a function call one defined below it',()=>{
+  const helpers='function ensure_role(name):\n    return style_role(name)\n\nfunction style_role(name):\n    return name.upper()\n';
+  assert.deepEqual(analyze(helpers+'command "role":\n    description "Role"\n    execute:\n        reply ensure_role("fox")\n','roles.wisp').diagnostics,[]);
+  const early=analyze('let shout = loud("hi")\n\nfunction loud(text):\n    return text.upper()\n','early.wisp').diagnostics;
+  assert.deepEqual(early.map(item=>item.code),['EDITOR001']);
+});
