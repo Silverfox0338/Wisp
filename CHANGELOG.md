@@ -1,5 +1,11 @@
 # Changelog
 
+## VS Code extension 0.1.0
+
+- The extension now has its own version number. 0.1.0 supports Wisp 0.0.9.
+- Fixed `Undefined name` errors in the editor when a function calls another function defined lower in the file. A call made before a function is defined, outside any function, is still reported, because it fails when the bot runs.
+- Fixed a packaging mistake that left the language server out of the 0.0.9 extension.
+
 ## 0.0.9
 
 - Added `break` and `continue` in `for` and `while` loops. `break` outside a loop is a `wisp check` error.
