@@ -14,6 +14,10 @@ import {ROLE_MENU,record,type RuntimeComponent} from '../runtime/interpreter.js'
 import {PAGE_ID,startPages,turnPage} from '../discord/pages.js';
 import {roleChanges,roleSummary} from '../discord/roles.js';
 import {ComponentRegistry,statefulComponentIds} from '../discord/components.js';
+import {initProject} from '../cli/scaffold.js';
+import {runWispTests} from '../cli/test-runner.js';
+import {discover} from '../project/discovery.js';
+import {loadProject} from '../project/manifest.js';
 
 async function run(source:string,values:Record<string,Value>={}):Promise<Value>{
   let result:Value=null;
@@ -225,4 +229,19 @@ test('editor finds definitions inside imported modules',()=>{
     assert.equal(found?.file,join(root,'util.wisp'));
     assert.deepEqual(found?.range.start,{line:0,character:16});
   }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('new projects get AGENTS.md, and wisp test gives user options their own data',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'wisp-optdata-'));
+  try{
+    const root=initProject('gifts',dir);
+    const guide=readFileSync(join(root,'AGENTS.md'),'utf8');
+    assert.match(guide,/## What Wisp is not/);
+    assert.doesNotMatch(guide,/Working on Wisp itself/);
+    writeFileSync(join(root,'commands','give.wisp'),'command "give":\n    description "Give coins"\n    option target:\n        type: user\n        required: true\n    execute:\n        options.target.data.coins += 5\n        reply "ok"\n');
+    writeFileSync(join(root,'commands','coins.wisp'),'command "coins":\n    description "Your coins"\n    execute:\n        reply "{user.data.coins}"\n');
+    writeFileSync(join(root,'tests','gifts.test.wisp'),'mock.run("give", {"target": {"id": "7", "name": "Fox"}})\nmock.run("give", {"target": {"id": "7", "name": "Fox"}})\nmock.as("7")\nassert.equal(mock.run("coins")[0].content, "10")\n');
+    const project=loadProject(root);
+    assert.equal(await runWispTests(project,discover(project)),2);
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
