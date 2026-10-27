@@ -15,6 +15,7 @@ import type {Stmt} from '../compiler/ast.js';
 import type {ProjectConfig} from '../project/manifest.js';
 import {compileModules,moduleResolver} from '../project/modules.js';
 import {execute,host,record,type Value} from '../runtime/interpreter.js';
+import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
 import {standardGlobals} from '../runtime/globals.js';
 import {HttpClient,type HttpTransport} from '../runtime/http.js';
 import {Storage} from '../storage/sqlite.js';
@@ -94,7 +95,8 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
         const blocked=await checkCooldown(db,route.cooldown,`${type}:${route.path}`,label,{user:actingUser,guild:guildId,channel:'42'},Date.now()+clockOffset*1000);
         if(blocked){responses.push(record({content:blocked,ephemeral:true}) as Value);return responses;}
         const values={...common(command.name),options:optionValues,target:targetValue,
-          guild:record({id:project.manifest.discord.commands.guild_id??'42',name:'Test guild',memberCount:0}) as Value,
+          user:record({id:actingUser,name:'Test user',username:'test',bot:false,mention:`<@${actingUser}>`,data:dataApi(db,memberDataScope(guildId,actingUser))}) as Value,
+          guild:record({id:guildId,name:'Test guild',memberCount:0,...guildDataApi(db,guildId)}) as Value,
           interaction:record({user:record({id:actingUser,name:'Test user',username:'test',bot:false}) as Value,guildId,channelId:'42',commandName:command.name,subcommand:route.subcommand,group:route.group,target:targetValue,options:optionValues,createdAt:new Date().toISOString(),defer:host(()=>null),followUp:host((content,ephemeral=false)=>{responses.push(record({content,ephemeral}) as Value);return null;})}) as Value};
         await execute(route.execute,{values,file:command.file,schedule:testSchedule(command.file),reply:async body=>{responses.push(record(body) as Value);},resolveImport:moduleResolver(project.root,compiled.modules??new Map(),{values}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});
         return responses;

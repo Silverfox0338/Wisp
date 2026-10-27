@@ -5,6 +5,7 @@ export interface ComponentState {id:string;kind:string;name:string;guildId:strin
 export type ComponentOwner='message'|'channel'|'guild';
 /** A scheduled task saved so it survives a restart; the body is found again by file and name template. */
 export interface TaskRow {name:string;file:string;template:string;repeat:boolean;intervalSeconds:number;fireAt:number;data:Record<string,Value>|null}
+export interface TopRow {scope:string;value:number}
 export interface StorageSnapshot {values:{scope:string;key:string;value:Value}[];components:ComponentState[];rosters:{guildId:string;members:{id:string;joinedAt:string}[];completedAt:string}[];tasks?:TaskRow[]}
 export interface StorageBackend {
   get(scope:string,key:string,fallback?:Value):Value|Promise<Value>;
@@ -12,6 +13,8 @@ export interface StorageBackend {
   set(scope:string,key:string,value:Value):void|Promise<void>;
   delete(scope:string,key:string):void|Promise<void>;
   increment(scope:string,key:string,amount?:number):number|Promise<number>;
+  /** Highest numeric values stored under key in scopes starting with scopePrefix, largest first (ties by scope). */
+  top(scopePrefix:string,key:string,limit:number):TopRow[]|Promise<TopRow[]>;
   putComponent(item:ComponentState):void|Promise<void>;
   getComponent(id:string):ComponentState|null|Promise<ComponentState|null>;
   cleanupComponents():number|Promise<number>;

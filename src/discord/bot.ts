@@ -6,6 +6,7 @@ import {ReloadableProject} from '../project/reload.js';
 import {moduleResolver} from '../project/modules.js';
 import {execute,host,record,type ExecutionContext,type Value} from '../runtime/interpreter.js';
 import {standardGlobals} from '../runtime/globals.js';
+import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
 import {HttpClient,type HttpLimits} from '../runtime/http.js';
 import {DatabaseManager} from '../storage/manager.js';
 import {RedisDatabase} from '../storage/external.js';
@@ -17,7 +18,7 @@ import {checkCooldown} from './cooldowns.js';
 import {RankingService,type RankedMember} from './ranking.js';
 import {ResponseState} from './responses.js';
 import {ComponentRegistry,linkSentMessage} from './components.js';
-import type {ComponentOwner,TaskRow} from '../storage/types.js';
+import type {ComponentOwner,StorageBackend,TaskRow} from '../storage/types.js';
 import {commandPermissions} from './permissions.js';
 import {EventGate} from './events.js';
 import {WispError} from '../diagnostics.js';
@@ -26,7 +27,7 @@ import {ExecutionTrace,writeTrace} from '../runtime/trace.js';
 import {uiApi} from './ui.js';
 
 function userValue(user:User):Value{return record({id:user.id,name:user.displayName,avatar:user.displayAvatarURL(),username:user.username,bot:user.bot,createdAt:user.createdAt.toISOString(),mention:`<@${user.id}>`}) as Value;}
-function memberValue(member:GuildMember|PartialGuildMember):Value{return record({id:member.id,name:member.displayName,avatar:member.displayAvatarURL(),nickname:member.nickname??null,username:member.user.username,bot:member.user.bot,createdAt:member.user.createdAt.toISOString(),joinedAt:member.joinedAt?.toISOString()??null,roles:'roles' in member&&'cache' in member.roles?[...member.roles.cache.values()].map(r=>record({id:r.id,name:r.name,position:r.position})):[],highestRolePosition:'roles' in member&&'highest' in member.roles?member.roles.highest.position:null,permissions:member.permissions?.bitfield?.toString()??null,mention:`<@${member.id}>`}) as Value;}
+function memberValue(member:GuildMember|PartialGuildMember,storage?:StorageBackend):Value{return record({...(storage?{data:dataApi(storage,memberDataScope(member.guild.id,member.id))}:{}),id:member.id,name:member.displayName,avatar:member.displayAvatarURL(),nickname:member.nickname??null,username:member.user.username,bot:member.user.bot,createdAt:member.user.createdAt.toISOString(),joinedAt:member.joinedAt?.toISOString()??null,roles:'roles' in member&&'cache' in member.roles?[...member.roles.cache.values()].map(r=>record({id:r.id,name:r.name,position:r.position})):[],highestRolePosition:'roles' in member&&'highest' in member.roles?member.roles.highest.position:null,permissions:member.permissions?.bitfield?.toString()??null,mention:`<@${member.id}>`}) as Value;}
 function rankedValue(member:RankedMember):Value{return record({...member}) as Value;}
 function messageValue(message:Message):Value{return record({id:message.id,content:message.content||null,author:userValue(message.author),channelId:message.channelId,guildId:message.guildId,createdAt:message.createdAt.toISOString()}) as Value;}
 function safe(error:unknown):string{return error instanceof WispError?`${error.code} ${error.message}${error.frames.length?` | ${error.frames.map(frame=>`${frame.file??'<source>'}:${frame.line}:${frame.column}`).join(' <- ')}`:error.line?` at ${error.line}:${error.column??1}`:''}`:`Unexpected host error${error instanceof Error?` (${error.name}: ${error.message.slice(0,500)})`:''}`;}
@@ -64,18 +65,18 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
   async function dispatchEvent(name:string,data:Record<string,Value>):Promise<void>{if(stopped)return;const accepted=await eventGate.run(async()=>{for(const handler of registry.value.events.filter(e=>e.name===name)){try{const started=Date.now(),limits={deadline:started+10000};await execute(handler.body,{values:{...common(handler.file,limits),event:record(data) as Value},file:handler.file,schedule:schedule(handler.file),resolveImport:moduleResolver(project.root,registry.value.modules??new Map(),{values:common(handler.file,limits)}),timeoutMs:10000,maxSteps:10000,maxLoops:10000});log('debug',`Event ${name} completed in ${Date.now()-started} ms`);}catch(error){log('error',`${handler.file}: ${safe(error)}`);}}});if(!accepted&&!stopped)log('warn',`Event ${name} dropped because the queue is full`);}
   client.once('clientReady',()=>{log('info','Connected to Discord');track(restoreTasks().catch(error=>{log('error',`Could not restore saved tasks: ${safe(error)}`);}).then(()=>dispatchEvent('ready',{})));});
   client.on('raw',packet=>{if(typeof packet.t!=='string'||!registry.value.events.some(event=>event.name===`gateway:${packet.t}`))return;try{const json=JSON.stringify(packet.d??null);if(json.length>1024*1024)throw new Error('Gateway payload exceeds limit');const data=JSON.parse(json) as Value;track(dispatchEvent(`gateway:${packet.t}`,{type:packet.t,data,sequence:typeof packet.s==='number'?packet.s:null}));}catch{log('warn',`Gateway event ${packet.t} could not be converted to Wisp data`);}});
-  client.on('guildMemberAdd',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_join',{member:memberValue(member)}));});
-  client.on('guildMemberRemove',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_leave',{member:memberValue(member)}));});
+  client.on('guildMemberAdd',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_join',{member:memberValue(member,storage)}));});
+  client.on('guildMemberRemove',member=>{ranking.invalidate(member.guild.id);track(dispatchEvent('member_leave',{member:memberValue(member,storage)}));});
   client.on('messageCreate',message=>{if(message.author.id===client.user?.id)return;track(dispatchEvent('message_create',{message:messageValue(message)}));});
   client.on('messageUpdate',(_old,message)=>{if(message.partial||message.author.id===client.user?.id)return;track(dispatchEvent('message_update',{message:messageValue(message)}));});
   client.on('messageDelete',message=>{forget('message',[message.id]);if(message.partial)return;track(dispatchEvent('message_delete',{message:messageValue(message)}));});
   client.on('messageDeleteBulk',messages=>forget('message',[...messages.keys()]));
   client.on('channelDelete',channel=>forget('channel',[channel.id]));client.on('threadDelete',thread=>forget('channel',[thread.id]));client.on('guildDelete',guild=>forget('guild',[guild.id]));
   client.on('interactionCreate',interaction=>{if(stopped)return;if(interaction.isChatInputCommand()||interaction.isContextMenuCommand())track(handle(interaction));else if(interaction.isAutocomplete())track(handleSuggest(interaction));else if(interaction.isButton()||interaction.isStringSelectMenu()||interaction.isUserSelectMenu()||interaction.isRoleSelectMenu()||interaction.isChannelSelectMenu()||interaction.isModalSubmit())track(handleComponent(interaction));});
-  function bindOptions(interaction:ChatInputCommandInteraction,options:OptionDecl[]):Record<string,Value>{
+  function bindOptions(interaction:ChatInputCommandInteraction,options:OptionDecl[],storage:StorageBackend):Record<string,Value>{
     const optionValues:Record<string,Value>=Object.create(null);
     for(const option of options){let value:Value=null;switch(option.type){
-      case 'user':{const user=interaction.options.getUser(option.name),member=interaction.options.getMember(option.name);value=user?(member instanceof GuildMember?memberValue(member):userValue(user)):null;break;}
+      case 'user':{const user=interaction.options.getUser(option.name),member=interaction.options.getMember(option.name);value=user?(member instanceof GuildMember?memberValue(member,storage):userValue(user)):null;break;}
       case 'role':{const role=interaction.options.getRole(option.name);value=role?record({id:role.id,name:role.name,position:'position' in role?role.position:null,mention:`<@&${role.id}>`}) as Value:null;break;}
       case 'channel':{const channel=interaction.options.getChannel(option.name);value=channel?record({id:channel.id,name:'name' in channel?channel.name:null,mention:`<#${channel.id}>`}) as Value:null;break;}
       case 'string':value=interaction.options.getString(option.name);break;
@@ -92,11 +93,11 @@ export async function runBot(project:ProjectConfig,compiled:CompiledProject,dev=
       if(permission!==undefined&&(!interaction.memberPermissions||!interaction.memberPermissions.has(permission)))throw new WispError('DISCORD005','Insufficient member permissions');
       const blocked=await checkCooldown(storage,route.cooldown,`${type}:${route.path}`,label,{user:interaction.user.id,guild:guild.id,channel:interaction.channelId});
       if(blocked){await response.send({content:blocked,ephemeral:true});await response.finish();return;}
-      const optionValues=interaction.isChatInputCommand()?bindOptions(interaction,route.options):Object.create(null) as Record<string,Value>;
-      const target:Value=interaction.isUserContextMenuCommand()?(interaction.targetMember instanceof GuildMember?memberValue(interaction.targetMember):userValue(interaction.targetUser)):interaction.isMessageContextMenuCommand()?messageValue(interaction.targetMessage):null;
-      const author=interaction.member instanceof GuildMember?memberValue(interaction.member):userValue(interaction.user);
-      const guildValue=record({id:guild.id,name:guild.name,memberCount:guild.memberCount,
-        member:host(async id=>{if(typeof id!=='string')throw new WispError('RUNTIME002','member ID must be a string');try{return memberValue(await guild.members.fetch(id));}catch{return null;}}),
+      const optionValues=interaction.isChatInputCommand()?bindOptions(interaction,route.options,storage):Object.create(null) as Record<string,Value>;
+      const target:Value=interaction.isUserContextMenuCommand()?(interaction.targetMember instanceof GuildMember?memberValue(interaction.targetMember,storage):userValue(interaction.targetUser)):interaction.isMessageContextMenuCommand()?messageValue(interaction.targetMessage):null;
+      const author=interaction.member instanceof GuildMember?memberValue(interaction.member,storage):userValue(interaction.user);
+      const guildValue=record({id:guild.id,name:guild.name,memberCount:guild.memberCount,...guildDataApi(storage,guild.id),
+        member:host(async id=>{if(typeof id!=='string')throw new WispError('RUNTIME002','member ID must be a string');try{return memberValue(await guild.members.fetch(id),storage);}catch{return null;}}),
         members:host(async()=>{const list=await ranking.roster(guild,(n,total)=>log('info',`Fetched ${n}/${total} members`));if(list.length>10000)throw new WispError('DISCORD005','Member list exceeds language limit');return list.map(rankedValue);}),
         joinRank:host(async member=>{const id=(member as Record<string,Value>)?.id;if(typeof id!=='string')throw new WispError('RUNTIME002','joinRank requires a member');return ranking.joinRank(guild,id);}),
         firstMembers:host(async(count,includeBots=true)=>(await ranking.firstMembers(guild,Number(count),includeBots!==false)).map(rankedValue)),

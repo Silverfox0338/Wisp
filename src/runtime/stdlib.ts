@@ -1,7 +1,7 @@
 import {randomInt} from 'node:crypto';
 import {WispError} from '../diagnostics.js';
 import type {StorageBackend} from '../storage/types.js';
-import {host,record,type HostFunction,type Value} from './interpreter.js';
+import {dataBag,host,record,type HostFunction,type Value} from './interpreter.js';
 function number(value:Value,label:string):number{if(typeof value!=='number'||!Number.isFinite(value))throw new WispError('RUNTIME002',`${label} must be a finite number`);return value;}
 function string(value:Value,label:string):string{if(typeof value!=='string')throw new WispError('RUNTIME002',`${label} must be a string`);return value;}
 function storageHost(call:HostFunction['call']):HostFunction{return host(async(...args)=>{try{return await call(...args);}catch(error){if(error instanceof WispError)throw error;if(error instanceof Error&&typeof (error as Error&{code?:unknown}).code==='string'&&(error as Error&{code:string}).code.startsWith('ERR_SQLITE_'))throw new WispError('STORAGE006',`SQLite: ${error.message}`);throw error;}});}
@@ -15,6 +15,20 @@ export function storageApi(db:StorageBackend,scope:string):Value{return record({
   sharedSet:storageHost(async(key,value)=>{await db.set('shared',string(key,'key'),value);return null;}),
   sharedIncrement:storageHost((key,amount=1)=>db.increment('shared',string(key,'key'),number(amount,'amount')))
 }) as Value;}
+/** `user.data` / `guild.data`: one storage scope per member or guild. */
+export function dataApi(db:StorageBackend,scope:string):Value{return dataBag({
+  get:key=>storageHost(()=>db.get(scope,key,null)).call(),
+  set:async(key,value)=>{await storageHost(async()=>{await db.set(scope,key,value);return null;}).call();},
+  delete:async key=>{await storageHost(async()=>{await db.delete(scope,key);return null;}).call();},
+  increment:async(key,amount)=>await storageHost(()=>db.increment(scope,key,amount)).call() as number
+});}
+/** Scope holding one member's data in one guild. */
+export function memberDataScope(guildId:string,userId:string):string{return `data:user:${guildId}:${userId}`;}
+/** `guild.data` and `guild.top(field, count)` for one guild. */
+export function guildDataApi(db:StorageBackend,guildId:string):{data:Value;top:HostFunction}{return {
+  data:dataApi(db,`data:guild:${guildId}`),
+  top:storageHost(async(field,count=10)=>{const key=string(field,'field'),limit=number(count,'count');if(!Number.isInteger(limit)||limit<1||limit>100)throw new WispError('RUNTIME002','top count must be 1 to 100');const prefix=memberDataScope(guildId,'');return (await db.top(prefix,key,limit)).map((row,index)=>{const id=row.scope.slice(prefix.length);return record({rank:index+1,id,mention:`<@${id}>`,value:row.value}) as Value;});})
+};}
 export function mathApi():Value{return record({
   abs:host(v=>Math.abs(number(v,'value'))),floor:host(v=>Math.floor(number(v,'value'))),ceil:host(v=>Math.ceil(number(v,'value'))),round:host(v=>Math.round(number(v,'value'))),
   min:host((...values)=>{if(!values.length)throw new WispError('RUNTIME002','min requires arguments');return Math.min(...values.map(v=>number(v,'argument')));}),

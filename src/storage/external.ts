@@ -3,7 +3,7 @@ import mysql,{type Pool as MysqlPool,type PoolConnection as MysqlConnection} fro
 import {createClient,type RedisClientType} from 'redis';
 import {WispError} from '../diagnostics.js';
 import type {Value} from '../runtime/interpreter.js';
-import type {ComponentOwner,ComponentState,StorageBackend,StorageSnapshot,TaskRow} from './types.js';
+import type {ComponentOwner,ComponentState,StorageBackend,StorageSnapshot,TaskRow,TopRow} from './types.js';
 
 export type ExternalEngine='postgres'|'mysql'|'redis';
 export interface ConnectionConfig {engine:ExternalEngine;url:string}
@@ -95,6 +95,10 @@ export class SqlDatabase implements StorageBackend {
   async has(scope:string,key:string):Promise<boolean>{return (await this.raw('SELECT 1 AS found FROM wisp_kv WHERE scope=? AND key_name=?',[scope,key])).rows.length>0;}
   async set(scope:string,key:string,value:Value):Promise<void>{const json=encode(value);if(this.engine==='postgres')await this.raw('INSERT INTO wisp_kv(scope,key_name,json_value) VALUES(?,?,?) ON CONFLICT(scope,key_name) DO UPDATE SET json_value=EXCLUDED.json_value',[scope,key,json]);else await this.raw('INSERT INTO wisp_kv(scope,key_name,json_value) VALUES(?,?,?) ON DUPLICATE KEY UPDATE json_value=VALUES(json_value)',[scope,key,json]);}
   async delete(scope:string,key:string):Promise<void>{await this.raw('DELETE FROM wisp_kv WHERE scope=? AND key_name=?',[scope,key]);}
+  async top(scopePrefix:string,key:string,limit:number):Promise<TopRow[]>{
+    const count=Math.trunc(limit),numeric=this.engine==='postgres'?"jsonb_typeof(json_value::jsonb)='number'":"JSON_TYPE(json_value) IN ('INTEGER','UNSIGNED INTEGER','DOUBLE','DECIMAL')",order=this.engine==='postgres'?'(json_value::jsonb)::numeric':'CAST(json_value AS DECIMAL(65,10))';
+    return (await this.raw(`SELECT scope,json_value FROM wisp_kv WHERE substr(scope,1,length(?))=? AND key_name=? AND ${numeric} ORDER BY ${order} DESC,scope LIMIT ${count}`,[scopePrefix,scopePrefix,key])).rows.map(row=>({scope:String(row.scope),value:Number(decode(String(row.json_value)))}));
+  }
   async increment(scope:string,key:string,amount=1):Promise<number>{if(!Number.isFinite(amount))throw new WispError('STORAGE006','Increment amount must be finite');return this.transaction(async connection=>{
     const insert=this.engine==='postgres'?'INSERT INTO wisp_kv(scope,key_name,json_value) VALUES(?,?,?) ON CONFLICT(scope,key_name) DO NOTHING':'INSERT IGNORE INTO wisp_kv(scope,key_name,json_value) VALUES(?,?,?)';
     await this.raw(insert,[scope,key,'0'],connection);const row=(await this.raw('SELECT json_value FROM wisp_kv WHERE scope=? AND key_name=? FOR UPDATE',[scope,key],connection)).rows[0]!;
@@ -138,11 +142,15 @@ export class RedisDatabase implements StorageBackend {
   async userDelete(key:string):Promise<void>{await this.client.del(this.userKey(key));}
   async userIncrement(key:string,amount=1):Promise<number>{return this.incrementKey(this.userKey(key),amount);}
   private key(scope:string,key:string):string{return `${this.prefix}kv:${Buffer.from(scope).toString('base64url')}:${Buffer.from(key).toString('base64url')}`;}
+  /** Numeric values in per-user data scopes are mirrored into a sorted set so top() needs no scan. */
+  private board(scope:string,key:string):string|null{if(!scope.startsWith('data:user:'))return null;const prefix=scope.slice(0,scope.lastIndexOf(':')+1);return `${this.prefix}top:${Buffer.from(prefix).toString('base64url')}:${Buffer.from(key).toString('base64url')}`;}
+  private async score(scope:string,key:string,value:Value):Promise<void>{const board=this.board(scope,key);if(!board)return;if(typeof value==='number')await this.client.zAdd(board,{score:value,value:scope});else await this.client.zRem(board,scope);}
+  async top(scopePrefix:string,key:string,limit:number):Promise<TopRow[]>{const board=`${this.prefix}top:${Buffer.from(scopePrefix).toString('base64url')}:${Buffer.from(key).toString('base64url')}`;return (await this.client.zRangeWithScores(board,0,Math.trunc(limit)-1,{REV:true})).map(row=>({scope:String(row.value),value:row.score}));}
   async get(scope:string,key:string,fallback:Value=null):Promise<Value>{const found=await this.client.get(this.key(scope,key));return found===null?fallback:decode(found);}
   async has(scope:string,key:string):Promise<boolean>{return (await this.client.exists(this.key(scope,key)))>0;}
-  async set(scope:string,key:string,value:Value):Promise<void>{await this.client.set(this.key(scope,key),encode(value));}
-  async delete(scope:string,key:string):Promise<void>{await this.client.del(this.key(scope,key));}
-  async increment(scope:string,key:string,amount=1):Promise<number>{return this.incrementKey(this.key(scope,key),amount);}
+  async set(scope:string,key:string,value:Value):Promise<void>{await this.client.set(this.key(scope,key),encode(value));await this.score(scope,key,value);}
+  async delete(scope:string,key:string):Promise<void>{await this.client.del(this.key(scope,key));await this.score(scope,key,null);}
+  async increment(scope:string,key:string,amount=1):Promise<number>{const value=await this.incrementKey(this.key(scope,key),amount);await this.score(scope,key,value);return value;}
   private async incrementKey(key:string,amount:number):Promise<number>{if(!Number.isFinite(amount))throw new WispError('STORAGE006','Increment amount must be finite');
     const script="local raw=redis.call('GET',KEYS[1]); local current=0; if raw then local ok,value=pcall(cjson.decode,raw); if not ok or type(value)~='number' then return redis.error_reply('Stored counter is not a number') end; current=value end; local next=current+tonumber(ARGV[1]); if next~=next or next==math.huge or next==-math.huge then return redis.error_reply('Counter overflow') end; local ttl=redis.call('PTTL',KEYS[1]); if ttl>0 then redis.call('PSETEX',KEYS[1],ttl,cjson.encode(next)) else redis.call('SET',KEYS[1],cjson.encode(next)) end; return cjson.encode(next)";
     try{const result=await this.client.eval(script,{keys:[key],arguments:[String(amount)]});const value=Number(result);if(!Number.isFinite(value))throw new WispError('STORAGE006','Counter overflow');return value;}
@@ -171,7 +179,7 @@ export class RedisDatabase implements StorageBackend {
   async saveRoster(guildId:string,members:{id:string;joinedAt:string}[]):Promise<void>{await this.client.set(`${this.prefix}roster:${guildId}`,JSON.stringify({guildId,members,completedAt:new Date().toISOString()}));}
   async restore(snapshot:StorageSnapshot):Promise<void>{let cursor='0';do{const scan=await this.client.scan(cursor,{MATCH:`${this.base}*`,COUNT:100});cursor=scan.cursor;if(scan.keys.length)throw new WispError('STORAGE006','Migration destination must be empty');}while(cursor!=='0');
     const generation=`${Date.now()}-${Math.random().toString(36).slice(2)}`,staging=`${this.base}generation:${generation}:`;
-    try{for(const row of snapshot.values)await this.client.set(`${staging}${this.key(row.scope,row.key).slice(this.prefix.length)}`,encode(row.value));
+    try{for(const row of snapshot.values){await this.client.set(`${staging}${this.key(row.scope,row.key).slice(this.prefix.length)}`,encode(row.value));const board=this.board(row.scope,row.key);if(board&&typeof row.value==='number')await this.client.zAdd(`${staging}${board.slice(this.prefix.length)}`,{score:row.value,value:row.scope});}
       for(const item of snapshot.components){if(item.expiresAt>0&&item.expiresAt<=Date.now())continue;const key=`${staging}component:${item.id}`;if(item.expiresAt>0)await this.client.set(key,JSON.stringify(item),{PX:item.expiresAt-Date.now()});else await this.client.set(key,JSON.stringify(item));if(item.messageId)await this.client.sAdd(`${staging}component-message:${item.messageId}`,item.id);}
       for(const row of snapshot.rosters)await this.client.set(`${staging}roster:${row.guildId}`,JSON.stringify(row));
       for(const row of snapshot.tasks??[])await this.client.hSet(`${staging}tasks`,row.name,JSON.stringify(row));

@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import {parse} from '../compiler/parser.js';
 import {execute,type Value} from '../runtime/interpreter.js';
 import {analyze} from '../editor/service.js';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {Storage} from '../storage/sqlite.js';
+import {dataApi,guildDataApi,memberDataScope} from '../runtime/stdlib.js';
+import {record} from '../runtime/interpreter.js';
 
 async function run(source:string,values:Record<string,Value>={}):Promise<Value>{
   let result:Value=null;
@@ -74,3 +80,41 @@ test('editor understands the new statements',()=>{
   assert.deepEqual(analyze(source,'lang.wisp').diagnostics,[]);
   assert.deepEqual(analyze('missing += 1\n','lang.wisp').diagnostics.map(item=>item.code),['EDITOR001']);
 });
+
+async function withStorage(work:(db:Storage)=>Promise<void>):Promise<void>{
+  const root=mkdtempSync(join(tmpdir(),'wisp-009-')),db=new Storage(join(root,'data.db'));
+  try{await work(db);}finally{db.close();rmSync(root,{recursive:true,force:true});}
+}
+const member=(db:Storage,id:string)=>record({id,data:dataApi(db,memberDataScope('g1',id))}) as Value;
+
+test('user.data reads, writes, deletes, and counts from zero',()=>withStorage(async db=>{
+  const user=member(db,'u1'),guild=record(guildDataApi(db,'g1')) as Value;
+  assert.equal(await run('user.data.coins += 5\nuser.data.coins -= 1\nuser.data.name = "Kit"\nuser.data["title"] = "Fox"\nreturn user.data.coins\n',{user}),4);
+  assert.equal(db.get(memberDataScope('g1','u1'),'name'),'Kit');
+  assert.equal(await run('return user.data.missing ?? "none"\n',{user}),'none');
+  assert.equal(await run('user.data.name = null\nreturn user.data.name\n',{user}),null);
+  assert.equal(db.has(memberDataScope('g1','u1'),'name'),false);
+  assert.equal(await run('guild.data.prefix = "!"\nreturn guild.data.prefix + user.data.title\n',{user,guild}),'!Fox');
+}));
+
+test('user.data += is atomic across concurrent handlers',()=>withStorage(async db=>{
+  await Promise.all(Array.from({length:25},()=>run('user.data.coins += 1\n',{user:member(db,'u1')})));
+  assert.equal(db.get(memberDataScope('g1','u1'),'coins'),25);
+}));
+
+test('user.data rejects nested writes and non-data values',()=>withStorage(async db=>{
+  const user=member(db,'u1');
+  await assert.rejects(run('user.data.stats = {"wins": 1}\nuser.data.stats.wins += 1\n',{user}),/Data fields are one level deep; save the whole map with user\.data\.stats = \{\.\.\.\}/);
+  assert.equal(await run('let stats = user.data.stats\nstats.wins += 1\nuser.data.stats = stats\nreturn user.data.stats.wins\n',{user}),2);
+  await assert.rejects(run('user.data.copy = user.data\n',{user}),/Data fields hold text, numbers/);
+}));
+
+test('guild.top ranks members by a numeric data field',()=>withStorage(async db=>{
+  for(const [id,coins] of [['a',5],['b',12],['c',7],['d',12]] as const)db.set(memberDataScope('g1',id),'coins',coins);
+  db.set(memberDataScope('g1','e'),'coins','lots');
+  db.set(memberDataScope('g2','x'),'coins',99);
+  const guild=record(guildDataApi(db,'g1')) as Value;
+  const top=await run('return guild.top("coins", 3)\n',{guild}) as Record<string,Value>[];
+  assert.deepEqual(top.map(row=>[row.rank,row.id,row.value,row.mention]),[[1,'b',12,'<@b>'],[2,'d',12,'<@d>'],[3,'c',7,'<@c>']]);
+  await assert.rejects(run('return guild.top("coins", 0)\n',{guild}),/top count must be 1 to 100/);
+}));
