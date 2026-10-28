@@ -25,7 +25,9 @@ test('wisp.json accepts shards and processes and explains bad values',()=>withPr
   const project=loadProject(root);
   assert.equal(project.manifest.discord.shards,'auto');
   assert.equal(project.manifest.discord.processes,1);
-  assert.equal(project.manifest.runtime,'>=0.0.10 <0.0.11');
+  assert.equal(project.manifest.runtime,'>=0.1.0 <0.2.0');
+  editManifest(root,m=>{m.runtime='>=0.0.10 <0.0.11';});
+  assert.equal(loadProject(root).manifest.runtime,'>=0.0.10 <0.0.11');
   editManifest(root,m=>{m.discord.shards=4;});
   assert.equal(loadProject(root).manifest.discord.shards,4);
   for(const [shards,pattern] of [[0,/"auto" or a whole number/],[2.5,/"auto" or a whole number/],['many',/"auto" or a whole number/]] as const){
@@ -197,12 +199,13 @@ test('commands and events load from subfolders', ()=>withProject(root=>{
 test('discord.transcript pages through history and builds HTML or text',async()=>{
   const history=Array.from({length:150},(_,i)=>({id:String(1000+i),content:i===149?'hi <@42> <b>':`message ${i}`,timestamp:new Date(Date.UTC(2026,9,27,14,0,i)).toISOString(),author:{username:i%2?'kuro':'helper',global_name:i%2?'Kuro':null,bot:i%2===0},mentions:i===149?[{id:'42',username:'mod',global_name:'Mod'}]:[],attachments:i===0?[{filename:'log.txt',url:'https://cdn.discordapp.com/x/log.txt'}]:[],embeds:i===1?[{title:'Rules',description:'Be kind'}]:[]}));
   const requests:Record<string,string>[]=[];
-  const client={rest:{request:async(input:{query?:URLSearchParams})=>{
+  const client={rest:{request:async(input:{fullRoute:string;query?:URLSearchParams})=>{
+    if(!input.fullRoute.endsWith('/messages'))throw Object.assign(new Error('Missing Access'),{status:403,code:50001});
     const query=Object.fromEntries(input.query??[]);requests.push(query);
     const newest=[...history].reverse(),start=query.before?newest.findIndex(message=>message.id===query.before)+1:0;
     return newest.slice(start,start+Number(query.limit));
   }}} as unknown as Client;
-  const transcript=(discordApi(client) as Record<string,HostFunction>).transcript!;
+  const transcript=(discordApi(client,undefined,undefined,undefined,{fetchImage:null}) as Record<string,HostFunction>).transcript!;
   const html=await transcript.call('111111111111111111') as Record<string,unknown>;
   assert.equal(html.messages,150);
   assert.equal(html.name,'transcript-111111111111111111.html');
@@ -210,9 +213,9 @@ test('discord.transcript pages through history and builds HTML or text',async()=
   const page=String(html.text);
   assert.ok(page.startsWith('<!doctype html>'));
   assert.ok(page.indexOf('message 0')<page.indexOf('message 148'));
-  assert.match(page,/hi @Mod &lt;b&gt;/);
-  assert.match(page,/<a href="https:\/\/cdn\.discordapp\.com\/x\/log\.txt">log\.txt<\/a>/);
-  assert.match(page,/<strong>Rules<\/strong><p>Be kind<\/p>/);
+  assert.match(page,/hi <span class="mention">@Mod<\/span> &lt;b&gt;/);
+  assert.match(page,/<a class="file" href="https:\/\/cdn\.discordapp\.com\/x\/log\.txt"[^>]*>.*<span class="file-name">log\.txt<\/span>/);
+  assert.match(page,/<div class="e-title">Rules<\/div><div class="e-desc">Be kind<\/div>/);
   const text=await transcript.call('111111111111111111',{format:'text',limit:2,name:'ticket.txt'}) as Record<string,unknown>;
   assert.equal(text.name,'ticket.txt');
   assert.equal(text.messages,2);
@@ -228,15 +231,16 @@ test('scripts write files and send transcripts from memory or from the files fol
     'let t = discord.transcript("111111111111111111", {"format": "text"})',
     'assert.equal(t.messages, 1)',
     'assert.ok(t.text.contains("kuro: bye"))',
+    'mock.clear()',
     'mock.respond("POST", "/channels/222222222222222222/messages", {"id": "9"})',
     'discord.send("222222222222222222", "Ticket closed", {}, [t])',
-    'assert.equal(mock.calls()[1].files[0].name, "transcript-111111111111111111.txt")',
-    'assert.ok(mock.calls()[1].files[0].text.contains("kuro: bye"))',
+    'assert.equal(mock.calls()[0].files[0].name, "transcript-111111111111111111.txt")',
+    'assert.ok(mock.calls()[0].files[0].text.contains("kuro: bye"))',
     'let path = files.write("transcripts/{t.name}", t.text)',
     'assert.equal(path, "files/transcripts/transcript-111111111111111111.txt")',
     'mock.respond("POST", "/channels/222222222222222222/messages", {"id": "10"})',
     'discord.send("222222222222222222", "Saved copy", {}, [path])',
-    'assert.ok(mock.calls()[2].files[0].text.contains("kuro: bye"))',
+    'assert.ok(mock.calls()[1].files[0].text.contains("kuro: bye"))',
     'files.append("log.txt", "one\\n")',
     'files.append("log.txt", "two\\n")',
     'assert.equal(files.read("log.txt"), "one\\ntwo\\n")',

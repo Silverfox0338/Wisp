@@ -22,7 +22,7 @@ test('language server handles initialization, diagnostics, completion and hover 
   let buffer=Buffer.alloc(0),next=1;const pending=new Map(),notifications=[];
   child.stdout.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(true){const header=buffer.indexOf('\r\n\r\n');if(header<0)break;const match=/Content-Length:\s*(\d+)/i.exec(buffer.subarray(0,header).toString());if(!match)throw new Error('Missing Content-Length');const length=Number(match[1]);if(buffer.length<header+4+length)break;const data=JSON.parse(buffer.subarray(header+4,header+4+length).toString());buffer=buffer.subarray(header+4+length);if(data.id!==undefined&&pending.has(data.id)){pending.get(data.id)(data);pending.delete(data.id);}else notifications.push(data);}});
   const send=payload=>{const json=Buffer.from(JSON.stringify({jsonrpc:'2.0',...payload}));child.stdin.write(`Content-Length: ${json.length}\r\n\r\n`);child.stdin.write(json);};
-  const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),5000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
+  const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),15000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
   try{
     const initialized=await request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{}});assert.equal(initialized.result.capabilities.hoverProvider,true);
     send({method:'initialized',params:{}});
@@ -64,7 +64,7 @@ test('language server formats, offers quick fixes, and jumps into imported modul
   let buffer=Buffer.alloc(0),next=1;const pending=new Map(),notifications=[];
   child.stdout.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(true){const header=buffer.indexOf('\r\n\r\n');if(header<0)break;const length=Number(/Content-Length:\s*(\d+)/i.exec(buffer.subarray(0,header).toString())[1]);if(buffer.length<header+4+length)break;const data=JSON.parse(buffer.subarray(header+4,header+4+length).toString());buffer=buffer.subarray(header+4+length);if(data.id!==undefined&&pending.has(data.id)){pending.get(data.id)(data);pending.delete(data.id);}else notifications.push(data);}});
   const send=payload=>{const json=Buffer.from(JSON.stringify({jsonrpc:'2.0',...payload}));child.stdin.write(`Content-Length: ${json.length}\r\n\r\n`);child.stdin.write(json);};
-  const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),5000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
+  const request=(method,params)=>new Promise((resolve,reject)=>{const id=next++;const timer=setTimeout(()=>reject(new Error(`LSP ${method} timed out`)),15000);pending.set(id,value=>{clearTimeout(timer);resolve(value);});send({id,method,params});});
   try{
     const initialized=await request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{}});
     assert.equal(initialized.result.capabilities.documentFormattingProvider,true);

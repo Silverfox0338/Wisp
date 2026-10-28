@@ -33,9 +33,17 @@ function arithmetic(op:string,l:Value,r:Value,file?:string,line?:number,column?:
   if(typeof l!=='number'||typeof r!=='number')throw new WispError('RUNTIME002',`${op} requires numbers`);
   const result=numeric[op]!(l,r);if(typeof result==='number'&&!Number.isFinite(result))throw new WispError('RUNTIME002','Nonfinite number');return result;
 }
-/** `item in container`: list items, map keys, or text inside text. */
+/** Same contents: lists item by item, maps key by key. Functions, built-ins with methods, and saved-data bags match only themselves. */
+export function sameValue(a:Value,b:Value,depth=0):boolean{
+  if(a===b)return true;
+  if(depth>32||a===null||b===null||typeof a!=='object'||typeof b!=='object'||isHost(a)||isHost(b)||bagOf(a)||bagOf(b))return false;
+  if(Array.isArray(a)||Array.isArray(b))return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((item,index)=>sameValue(item,b[index]!,depth+1));
+  const keys=Object.keys(a);
+  return keys.length===Object.keys(b).length&&keys.every(key=>Object.hasOwn(b,key)&&sameValue(a[key] as Value,b[key] as Value,depth+1));
+}
+/** `item in container`: list items by value, map keys, or text inside text. */
 function contains(container:Value,item:Value):boolean{
-  if(Array.isArray(container))return container.some(value=>value===item);
+  if(Array.isArray(container))return container.some(value=>sameValue(value,item));
   if(typeof container==='string'){if(typeof item!=='string')throw new WispError('RUNTIME002','in on text needs text on the left');return container.includes(item);}
   if(container!==null&&typeof container==='object'&&!isHost(container)){if(typeof item!=='string')throw new WispError('RUNTIME002','Map keys are text');return Object.hasOwn(container,item);}
   throw new WispError('RUNTIME002','in needs a list, map, or text on the right');

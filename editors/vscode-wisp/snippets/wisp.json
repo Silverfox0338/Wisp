@@ -294,11 +294,10 @@
       "        type: channel",
       "        required: true",
       "    execute:",
-      "        let t = discord.transcript(interaction.channelId, {\"format\": \"${3|html,text|}\"})",
-      "        discord.send(options.log.id, \"Transcript of {t.messages} messages\", {}, [t])",
-      "        reply \"${4:Ticket closed}\"$0"
+      "        reply \"${3:Closing this ticket...}\"",
+      "        discord.closeTicket(interaction.channelId, {\"log\": options.log.id, \"delete\": ${4|true,false|}})$0"
     ],
-    "description": "Post a channel's transcript to a log channel without saving a file"
+    "description": "Post a ticket's transcript to a log channel, then delete the ticket"
   },
   "Shard event": {
     "prefix": "onshard",

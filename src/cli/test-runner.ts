@@ -8,7 +8,8 @@ import {parse} from '../compiler/parser.js';
 import {WispError} from '../diagnostics.js';
 import {discordApi} from '../discord/api.js';
 import {filesApi} from '../runtime/files.js';
-import {commandRoute,findCommand,type CommandRoute,type CompiledProject,type CommandType} from '../project/discovery.js';
+import {commandRoute,componentIndex,findCommand,findComponentHandler,type CommandRoute,type CompiledProject,type CommandType} from '../project/discovery.js';
+import {handlerNames} from '../project/context.js';
 import type {CommandDecl} from '../compiler/ast.js';
 import {suggestionChoices,suggestTimeoutMs} from '../discord/suggest.js';
 import {checkCooldown} from '../discord/cooldowns.js';
@@ -98,14 +99,27 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
         const responses:Value[]=[];
         const blocked=await checkCooldown(db,route.cooldown,`${type}:${route.path}`,label,{user:actingUser,guild:guildId,channel:'42'},Date.now()+clockOffset*1000);
         if(blocked){responses.push(record({content:blocked,ephemeral:true}) as Value);return responses;}
-        const values={...common(command.name),options:optionValues,target:targetValue,
-          user:record({id:actingUser,name:'Test user',username:'test',bot:false,mention:`<@${actingUser}>`,data:dataApi(db,memberDataScope(guildId,actingUser))}) as Value,
-          guild:record({id:guildId,name:'Test guild',memberCount:0,shard:/^\d{1,20}$/.test(guildId)?shardForGuild(guildId,fakeShards.length):0,...guildDataApi(db,guildId)}) as Value,
+        const values={...common(command.name),options:optionValues,target:targetValue,user:fakeUser(actingUser),guild:fakeGuild(),
           interaction:record({user:record({id:actingUser,name:'Test user',username:'test',bot:false}) as Value,guildId,channelId:'42',commandName:command.name,subcommand:route.subcommand,group:route.group,target:targetValue,options:optionValues,createdAt:new Date().toISOString(),defer:host(()=>null),followUp:host((content,ephemeral=false)=>{responses.push(record({content,ephemeral}) as Value);return null;})}) as Value};
         await execute(route.execute,{values,file:command.file,schedule:testSchedule(command.file),reply:async body=>{responses.push(record(body) as Value);},resolveImport:moduleResolver(project.root,compiled.modules??new Map(),{values}),timeoutMs:command.timeoutMs??15000,maxSteps:10000,maxLoops:10000,trace});
         return responses;
       };
       let fakeShards:Value[]=[record({id:0,status:'ready',ping:42,guilds:1}) as Value];
+      const testGuildId=project.manifest.discord.commands.guild_id??'42';
+      let fakeMembers:Record<string,Value>[]|null=null;
+      const roster=():Record<string,Value>[]=>fakeMembers??[{id:actingUser,name:'Test user',username:'test',bot:false,joinedAt:'2026-01-01T00:00:00.000Z'}];
+      const fakeUser=(id:string):Value=>record({id,name:'Test user',username:'test',bot:false,...roster().find(member=>member.id===id),mention:`<@${id}>`,data:dataApi(db,memberDataScope(testGuildId,id))}) as Value;
+      const fakeGuild=():Value=>record({id:testGuildId,name:'Test guild',memberCount:roster().length,shard:/^\d{1,20}$/.test(testGuildId)?shardForGuild(testGuildId,fakeShards.length):0,...guildDataApi(db,testGuildId),
+        member:host(id=>{if(typeof id!=='string')throw new WispError('RUNTIME002','member ID must be a string');return roster().some(member=>member.id===id)?fakeUser(id):null;}),
+        members:host(()=>roster().map((member,index)=>record({...member,rank:index+1,mention:`<@${String(member.id)}>`}) as Value))
+      }) as Value;
+      /** guild and user for an event, from its member or message author, like the bot passes them. */
+      const eventContext=(name:string,data:Record<string,Value>):Record<string,Value>=>{
+        const has=handlerNames({kind:'event',name}),source=data.member??(data.message&&typeof data.message==='object'&&!Array.isArray(data.message)?(data.message as Record<string,Value>).author:null);
+        const id=source&&typeof source==='object'&&!Array.isArray(source)&&typeof (source as Record<string,Value>).id==='string'?(source as Record<string,Value>).id as string:actingUser;
+        return {...(has.has('guild')?{guild:fakeGuild()}:{}),...(has.has('user')?{user:fakeUser(id)}:{})};
+      };
+      const componentKinds=['button','select','user_select','role_select','channel_select','modal'];
       const mock=record({
         shards:host(list=>{if(!Array.isArray(list)||!list.length||list.some(item=>!item||typeof item!=='object'||Array.isArray(item)||typeof (item as Record<string,Value>).id!=='number'))throw new WispError('CLI002','mock.shards needs a nonempty list of maps with a number id');fakeShards=list.map(item=>record({...(item as Record<string,Value>)}) as Value);return null;}),
         respond:host((method,path,response)=>{const key=`${requiredString(method,'Method').toUpperCase()} ${requiredString(path,'Path')}`;const queue=replies.get(key)??[];queue.push(response);replies.set(key,queue);return null;}),
@@ -133,8 +147,8 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
           const option=route.options.find(o=>o.name===requiredString(optionName,'Option name'));
           if(!option?.suggest)throw new WispError('CLI002',`/${route.path} has no suggest: block on option ${String(optionName)}`);
           if(!options||typeof options!=='object'||Array.isArray(options))throw new WispError('CLI002','Command options must be a map');
-          const values={...common(`suggest:${route.path}`),typed:String(typed),options:record(options as Record<string,Value>) as Value,
-            interaction:record({user:record({id:'1',name:'Test user',username:'test',bot:false}) as Value,guildId:project.manifest.discord.commands.guild_id??'42',channelId:'42',commandName:command.name,subcommand:route.subcommand,group:route.group,focused:option.name}) as Value};
+          const values={...common(`suggest:${route.path}`),typed:String(typed),options:record(options as Record<string,Value>) as Value,guild:fakeGuild(),user:fakeUser(actingUser),
+            interaction:record({user:record({id:actingUser,name:'Test user',username:'test',bot:false}) as Value,guildId:project.manifest.discord.commands.guild_id??'42',channelId:'42',commandName:command.name,subcommand:route.subcommand,group:route.group,focused:option.name}) as Value};
           let result:Value=null;
           await execute(option.suggest,{values,file:command.file,onReturn:value=>{result=value;},resolveImport:moduleResolver(project.root,compiled.modules??new Map(),{values}),timeoutMs:suggestTimeoutMs,maxSteps:10000,maxLoops:10000,trace});
           return suggestionChoices(result,option.type).map(c=>record({...c}) as Value);
@@ -143,9 +157,34 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
           const events=compiled.events.filter(item=>item.name===requiredString(name,'Event name'));
           if(!events.length)throw new WispError('CLI002',`Unknown event ${String(name)}`);
           if(!data||typeof data!=='object'||Array.isArray(data))throw new WispError('CLI002','Event data must be a map');
-          const values={...common(`event:${name}`),event:record(data as Record<string,Value>) as Value};
+          const values={...common(`event:${name}`),...eventContext(String(name),data as Record<string,Value>),event:record(data as Record<string,Value>) as Value};
           for(const event of events)await execute(event.body,{values,file:event.file,schedule:testSchedule(event.file),resolveImport:moduleResolver(project.root,compiled.modules??new Map(),{values}),timeoutMs:10000,maxSteps:10000,maxLoops:10000,trace});
           return null;
+        }),
+        members:host(list=>{
+          if(!Array.isArray(list)||list.length>10000||list.some(item=>!item||typeof item!=='object'||Array.isArray(item)||typeof (item as Record<string,Value>).id!=='string'))throw new WispError('CLI002','mock.members needs a list of maps with a text id, such as [{"id": "1", "name": "Kuro"}]');
+          fakeMembers=list.map((item,index)=>({name:`Member ${index+1}`,username:`member${index+1}`,bot:false,joinedAt:new Date(Date.UTC(2026,0,1+index)).toISOString(),...(item as Record<string,Value>)}))
+            .sort((a,b)=>String(a.joinedAt).localeCompare(String(b.joinedAt)));
+          return null;
+        }),
+        press:host(async(name,settings={})=>{
+          const id=requiredString(name,'Component name');
+          if(!settings||typeof settings!=='object'||Array.isArray(settings))throw new WispError('CLI002','mock.press settings must be a map');
+          const input=settings as Record<string,Value>;
+          for(const key of Object.keys(input))if(!['kind','state','values','fields','user'].includes(key))throw new WispError('CLI002',`Unknown mock.press setting ${key}; use kind, state, values, fields, or user`);
+          if(input.kind!==undefined&&!componentKinds.includes(String(input.kind)))throw new WispError('CLI002',`mock.press kind must be one of ${componentKinds.join(', ')}`);
+          const kind=(input.kind===undefined?componentKinds:[String(input.kind)]).find(item=>findComponentHandler(compiled.events,item,id));
+          const handler=kind?findComponentHandler(compiled.events,kind,id):undefined;
+          if(!kind||!handler){const known=compiled.events.filter(event=>event.name.includes(':')&&!event.name.startsWith('gateway:')).map(event=>event.name);throw new WispError('CLI002',`No component handler for "${id}"`,undefined,undefined,undefined,known.length?`Handlers: ${known.join(', ')}`:'Add one such as on button "name": in events/');}
+          const valuesList=input.values??[],fields=input.fields??{},state=input.state??{};
+          if(!Array.isArray(valuesList)||valuesList.some(item=>typeof item!=='string'))throw new WispError('CLI002','mock.press values must be a list of text');
+          for(const [label,item] of [['fields',fields],['state',state]] as const)if(!item||typeof item!=='object'||Array.isArray(item))throw new WispError('CLI002',`mock.press ${label} must be a map`);
+          const who=input.user===undefined?actingUser:requiredString(input.user,'User ID'),responses:Value[]=[];
+          const values={...common(`component:${id}`),guild:fakeGuild(),user:fakeUser(who),
+            interaction:record({user:record({id:who,name:'Test user',username:'test',bot:false}) as Value,guildId:testGuildId,channelId:'42',kind,name:id,index:componentIndex(handler,id),values:[...valuesList],fields:record(fields as Record<string,Value>),state:record(state as Record<string,Value>),
+              defer:host(()=>null),followUp:host((content,ephemeral=false)=>{responses.push(record({content,ephemeral}) as Value);return null;})}) as Value};
+          await execute(handler.body,{values,file:handler.file,schedule:testSchedule(handler.file),reply:async body=>{responses.push(record(body) as Value);},resolveImport:moduleResolver(project.root,compiled.modules??new Map(),{values}),timeoutMs:15000,maxSteps:10000,maxLoops:10000,trace});
+          return responses;
         })
       }) as Value;
       const assertions=record({
@@ -153,7 +192,7 @@ export async function runWispTests(project:ProjectConfig,compiled:CompiledProjec
         ok:host(value=>{assert.equal(value,true,'Expected true');return null;}),
         called:host((method,path,count=1)=>{const found=calls.filter(call=>call.method===requiredString(method,'Method').toUpperCase()&&call.path===requiredString(path,'Path')).length;assert.equal(found,count);return null;})
       }) as Value;
-      const common=(scope:string)=>({...standardGlobals({storage:db,db:databaseApi,discord:discordApi(fake,project.root,undefined,undefined,filesFolder),files:filesApi(filesFolder.root,filesFolder.prefix),log:record({info:host(()=>null),warn:host(()=>null),error:host(()=>null),debug:host(()=>null)}) as Value,http:httpClient},scope),bot:record({shards:host(()=>fakeShards)}) as Value,mock,assert:assertions,ui:uiApi(new ComponentRegistry(db,project.manifest.discord.commands.guild_id??'42','1'))});
+      const common=(scope:string)=>({...standardGlobals({storage:db,db:databaseApi,discord:discordApi(fake,project.root,undefined,undefined,{files:filesFolder,fetchImage:null}),files:filesApi(filesFolder.root,filesFolder.prefix),log:record({info:host(()=>null),warn:host(()=>null),error:host(()=>null),debug:host(()=>null)}) as Value,http:httpClient},scope),bot:record({shards:host(()=>fakeShards)}) as Value,mock,assert:assertions,ui:uiApi(new ComponentRegistry(db,project.manifest.discord.commands.guild_id??'42','1'))});
       const values=common(`test:${relative(project.root,file)}`);
       const resolver=moduleResolver(project.root,new Map([...compiled.modules??[],...modules]),{values});
       await execute(script.statements,{values,file,resolveImport:resolver,timeoutMs:15000,maxSteps:10000,maxLoops:10000,trace});

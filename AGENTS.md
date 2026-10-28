@@ -110,11 +110,12 @@ Things to know:
 - **Errors**: `try:` with `catch error:`, and `raise "message"`.
 - **Saved data**: `user.data.field` saves per member, `guild.data.field` per server, and `guild.top("coins", 10)` gives a leaderboard. A missing field reads as `null`, so write `user.data.coins ?? 0` when you need a number. Data fields are one level deep: change a saved map by saving the whole map again.
 - **Replies**: `reply "text"`, `reply "text" ephemeral: true` for a private reply, and `reply:` blocks with `embed:`, `row:`, `button`, `select`, `roles:`, and `pages:`.
-- **Events**: `on ready:`, `on member_join:`, `on message_create:`, `on button "id":` for button clicks, and `on shard_disconnect:` and the other shard events.
+- **Events**: `on ready:`, `on member_join:`, `on message_create:`, `on button "id":` for button clicks, and `on shard_disconnect:` and the other shard events. Commands, buttons, selects, modals, member events, and message events all have `guild` and `user`. `on ready:`, shard events, and timers don't; `wisp check` warns if you use them there.
+- **Tests**: `mock.run("cmd", {...})` runs a command, `mock.press("button_id", {...})` clicks a button or picks a select, and `mock.members([...])` fakes `guild.members()`.
 - **Shards**: Wisp shards by itself. `bot.shards()` lists them and `guild.shard` is a server's shard. Don't write sharding code; set `discord.processes` in `wisp.json` only for very large bots.
 - **Timers**: `after "name" 10 seconds:` and `every "name" 60 seconds:`.
 - **Files**: `files.write("notes/a.txt", text)`, `files.read`, `files.append`, `files.list`, and others work only inside the `files/` folder.
-- **Transcripts**: `let t = discord.transcript(channel_id)` gives `{name, text}`. `discord.send(channel_id, "Log", {}, [t])` posts it with nothing saved to disk.
+- **Transcripts**: `discord.closeTicket(channel_id, {"log": log_id, "dm": user_id, "delete": true})` posts a Discord-style transcript, DMs it, and deletes the channel. `let t = discord.transcript(channel_id)` gives `{name, text}`, and `discord.send(channel_id, "Log", {}, [t])` posts it with nothing saved to disk.
 
 ## When you're unsure
 

@@ -1,5 +1,5 @@
 import {WispError} from '../diagnostics.js';
-import {host,isHost,record,type Value} from './interpreter.js';
+import {host,isHost,record,sameValue,type Value} from './interpreter.js';
 
 const fail=(message:string):never=>{throw new WispError('RUNTIME002',message);};
 const num=(value:Value,label:string):number=>typeof value==='number'&&Number.isFinite(value)?value:fail(`${label} must be a finite number`);
@@ -7,7 +7,7 @@ const integer=(value:Value,label:string):number=>{const n=num(value,label);retur
 const str=(value:Value,label:string):string=>typeof value==='string'?value:fail(`${label} must be a string`);
 const sized=(value:string):string=>value.length<=65536?value:fail('String exceeds 64 KiB limit');
 const listed=(value:Value[]):Value[]=>value.length<=10000?value:fail('List exceeds 10000 items');
-const equal=(a:Value,b:Value):boolean=>a===b;
+const equal=(a:Value,b:Value):boolean=>sameValue(a,b);
 const entry=(key:string,value:Value):Value=>record({key,value}) as Value;
 const regex=(pattern:Value,flags:Value=''):RegExp=>{
   const source=str(pattern,'regex pattern'),options=str(flags,'regex flags');
@@ -61,6 +61,8 @@ export function valueMethod(value:Value,name:string,invoke:(fn:Value,args:Value[
   }
   if(value&&typeof value==='object'&&!isHost(value)){
     const map=value as Record<string,Value>,keys=()=>Object.keys(map);
+    // Built-in records such as interaction keep their own fields, so interaction.values is the selected values, not values().
+    if(!Array.isArray(value)&&Object.isFrozen(map)&&Object.hasOwn(map,name))return undefined;
     const methods:Record<string,Value>={
       keys:host(()=>listed(keys())),values:host(()=>listed(keys().map(key=>map[key]!))),entries:host(()=>listed(keys().map(key=>entry(key,map[key]!)))),
       contains:host(key=>Object.hasOwn(map,str(key,'key'))),

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0
+
+- Wisp is now 0.1. New projects use runtime `>=0.1.0 <0.2.0`, and every 0.1.x release keeps working with it, so updating Wisp no longer needs a `wisp.json` change. Older projects keep working.
+- Transcripts now look like Discord:
+  - a header with the server, channel topic, date range, and participants;
+  - avatars, role-colored names, and messages grouped by author;
+  - full markdown, with mentions, channels, roles, custom emoji, and timestamps shown as names;
+  - replies, slash command uses, embeds with fields, images and file cards, stickers, polls, threads, buttons and Components V2, reactions;
+  - join, pin, and boost messages;
+  - light and dark themes, and a phone-sized layout.
+- Images are saved inside the transcript by default (`"images": "embed"`, up to 8 MiB), because Discord's image links expire. Use `"images": "link"` for a smaller file. Text transcripts gain the same header, replies, embed fields, and reactions.
+- `discord.transcript` returns the channel name as `channel`. It reads the channel, server, roles, and members for names and colors. When it can't read one of them, it shows plain names instead of failing.
+- Added `discord.closeTicket(channelId, settings)`. It posts the transcript to `log`, DMs it to `dm` when set, and deletes the channel when `delete` is true, but only after the transcript was posted somewhere. A failed DM is reported in `dm_error` instead of stopping the close.
+- `guild` and `user` now work in button, select, and modal handlers, `suggest:` blocks, `on member_join:`/`on member_leave:`, and the message events, the same as in commands. `user.data` in a button handler saves for the member who clicked.
+- `wisp check` and the editor warn when a handler uses a value it won't have, such as `guild` in `on ready:`, or `user` inside an `after`/`every` timer. The warning shows what to pass with `with {...}`. It checks names inside `"{...}"` text too.
+- Test scripts gain `mock.press(name, settings)` to click a button or pick from a select, with `state`, `values`, `fields`, and `user`. `mock.members([...])` sets the fake members behind `guild.members()` and `guild.member(id)`. `mock.runEvent` gives member and message events their `guild` and `user`.
+- `in`, `not in`, and the list methods `contains`, `index`, and `remove` compare lists and maps by their contents, so `{"id": 1} in items` finds a matching map. `==` is unchanged.
+- Fixed `interaction.values` in select handlers returning the map method `values()` instead of the selected values. Fields of built-in values now take priority over map methods with the same name.
+- Fixed timers declared inside a `match` branch not being found after a restart.
+
+## VS Code extension 0.2.0
+
+- Supports Wisp 0.1.x: the new runtime range, completion for `discord.closeTicket` and its result, `mock.press`, and `mock.members`, and a "Ticket transcript" snippet that uses `closeTicket`.
+- Shows a warning when a handler uses `guild`, `user`, `interaction`, or `options` where it won't have them, such as inside a timer.
+
 ## 0.0.10
 
 - Bots now connect with Discord's recommended number of shards, so they keep working past 2,500 servers. Existing projects need no changes. Set `discord.shards` in `wisp.json` to a number to choose the count yourself.

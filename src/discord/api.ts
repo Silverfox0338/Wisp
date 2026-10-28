@@ -7,6 +7,7 @@ import {isAbsolute,relative,resolve,basename} from 'node:path';
 import {permissionApi} from './permissions.js';
 import {referenceApi} from './reference.js';
 import {shardForGuild} from './shards.js';
+import {buildTranscript,discordImages,transcriptKeys,transcriptSettings,type DiscordCall,type ImageFetcher} from './transcript.js';
 
 export interface GatewayPacket {op:number;d:unknown}
 /** Reaches shards that run in other processes. */
@@ -77,47 +78,15 @@ function plain(value:Value,label:string):unknown {
   return JSON.parse(json) as unknown;
 }
 
-type RawMessage={id?:unknown;content?:unknown;timestamp?:unknown;edited_timestamp?:unknown;author?:{username?:unknown;global_name?:unknown;bot?:unknown};mentions?:{id?:unknown;username?:unknown;global_name?:unknown}[];attachments?:{filename?:unknown;url?:unknown}[];embeds?:{title?:unknown;description?:unknown}[];sticker_items?:{name?:unknown}[]};
-const said=(value:unknown)=>typeof value==='string'?value:'';
-const authorName=(author:{username?:unknown;global_name?:unknown}|undefined)=>said(author?.global_name)||said(author?.username)||'Unknown user';
-const stamp=(value:unknown)=>{const time=Date.parse(said(value));return Number.isFinite(time)?`${new Date(time).toISOString().slice(0,16).replace('T',' ')} UTC`:'unknown time';};
-const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]!);
-/** Message text with user mentions shown as @name, plus its embeds, stickers, and attachments. */
-function messageParts(message:RawMessage){
-  const names=new Map((message.mentions??[]).map(user=>[said(user.id),authorName(user)]));
-  const content=said(message.content).replace(/<@!?(\d+)>/g,(raw,id:string)=>names.has(id)?`@${names.get(id)}`:raw);
-  const embeds=(message.embeds??[]).map(embed=>({title:said(embed.title),description:said(embed.description)})).filter(embed=>embed.title||embed.description);
-  const stickers=(message.sticker_items??[]).map(sticker=>said(sticker.name)).filter(Boolean);
-  const attachments=(message.attachments??[]).map(file=>({name:said(file.filename)||'file',url:/^https:\/\//.test(said(file.url))?said(file.url):''}));
-  return {author:authorName(message.author),bot:message.author?.bot===true,time:stamp(message.timestamp),edited:message.edited_timestamp!=null,content,embeds,stickers,attachments};
-}
-function transcriptText(title:string,channelId:string,messages:RawMessage[]):string{
-  const lines=[title,`${messages.length} messages from channel ${channelId}, saved ${stamp(new Date().toISOString())}`,''];
-  for(const message of messages){
-    const part=messageParts(message);
-    lines.push(`[${part.time}] ${part.author}${part.bot?' [bot]':''}: ${part.content}${part.edited?' (edited)':''}`);
-    for(const embed of part.embeds)lines.push(`    embed: ${[embed.title,embed.description].filter(Boolean).join(' - ')}`);
-    for(const sticker of part.stickers)lines.push(`    sticker: ${sticker}`);
-    for(const file of part.attachments)lines.push(`    attachment: ${file.name}${file.url?` ${file.url}`:''}`);
-  }
-  return `${lines.join('\n')}\n`;
-}
-function transcriptHtml(title:string,channelId:string,messages:RawMessage[]):string{
-  const items=messages.map(message=>{
-    const part=messageParts(message);
-    const embeds=part.embeds.map(embed=>`<div class="embed">${embed.title?`<strong>${escapeHtml(embed.title)}</strong>`:''}${embed.description?`<p>${escapeHtml(embed.description)}</p>`:''}</div>`).join('');
-    const extras=[...part.stickers.map(sticker=>`<li>Sticker: ${escapeHtml(sticker)}</li>`),...part.attachments.map(file=>`<li>${file.url?`<a href="${escapeHtml(file.url)}">${escapeHtml(file.name)}</a>`:escapeHtml(file.name)}</li>`)].join('');
-    return `<article><div class="meta"><span class="author">${escapeHtml(part.author)}</span>${part.bot?'<span class="tag">BOT</span>':''}<time>${part.time}${part.edited?' (edited)':''}</time></div>${part.content?`<div class="content">${escapeHtml(part.content)}</div>`:''}${embeds}${extras?`<ul>${extras}</ul>`:''}</article>`;
-  }).join('\n');
-  const style=':root{color-scheme:light dark;--bg:#ffffff;--text:#1f2328;--muted:#656d76;--line:#d0d7de;--accent:#5865f2}@media (prefers-color-scheme:dark){:root{--bg:#1e1f22;--text:#e3e5e8;--muted:#949ba4;--line:#3f4147}}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif}header,main{max-width:860px;margin:0 auto;padding:16px}header{border-bottom:1px solid var(--line)}h1{margin:0 0 4px;font-size:20px}header p,time{color:var(--muted);font-size:13px}article{padding:8px 0;border-bottom:1px solid var(--line)}.meta{display:flex;gap:8px;align-items:baseline}.author{font-weight:600}.tag{background:var(--accent);color:#fff;border-radius:3px;padding:0 4px;font-size:11px}.content{white-space:pre-wrap;overflow-wrap:anywhere}.embed{border-left:4px solid var(--accent);padding:4px 10px;margin:6px 0}.embed p{margin:4px 0 0;white-space:pre-wrap}ul{margin:4px 0;padding-left:20px}a{color:var(--accent)}';
-  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${style}</style></head><body><header><h1>${escapeHtml(title)}</h1><p>${messages.length} messages from channel ${escapeHtml(channelId)}, saved ${stamp(new Date().toISOString())}</p></header><main>\n${items}\n</main></body></html>\n`;
-}
-
 /** Where paths that start with the files folder name are read from; wisp test points it at a temporary folder. */
 export interface FilesFolder {prefix:string;root:string}
 
 /** onMessage receives messages created or edited through REST, for example to link component rows. */
-export function discordApi(client:Client,projectRoot?:string,onMessage?:(message:unknown)=>Promise<void>,remote?:GatewayRemote,filesFolder?:FilesFolder):Value {
+/** files maps the files folder for uploads; fetchImage downloads images for transcripts, or null to keep links. */
+export interface DiscordApiOptions {files?:FilesFolder;fetchImage?:ImageFetcher|null}
+
+export function discordApi(client:Client,projectRoot?:string,onMessage?:(message:unknown)=>Promise<void>,remote?:GatewayRemote,settings:DiscordApiOptions={}):Value {
+  const filesFolder=settings.files,fetchImage=settings.fetchImage===undefined?discordImages:settings.fetchImage;
   const request=host(async(method,path,body=null,query=null,reason=null,files=null)=>{
     if(typeof method!=='string'||!methods.has(method.toUpperCase()))throw new WispError('DISCORD005','Discord method must be GET, POST, PUT, PATCH, or DELETE');
     if(typeof path!=='string'||path.length>2048||!routePattern.test(path)||path.includes('//')||path.split('/').includes('..')||path.split('/').includes('.'))throw new WispError('DISCORD005','Discord path must be a relative /api/v10 route without query or fragment');
@@ -177,6 +146,7 @@ export function discordApi(client:Client,projectRoot?:string,onMessage?:(message
       throw failure;
     }
   });
+  const call:DiscordCall=async(method,path,body=null,query=null)=>request.call(method,path,body,query);
   const resources=referenceApi(request);
   const shardCount=()=>remote?.count()??client.options?.shardCount??client.ws.shards.size??1;
   const sendTo=async(shardId:number,packet:GatewayPacket):Promise<void>=>{const shard=client.ws.shards.get(shardId);if(shard){shard.send(packet);return;}if(remote&&shardId<remote.count()){await remote.send(shardId,packet);return;}throw new WispError('DISCORD005',`Gateway shard ${shardId} is unavailable`);};
@@ -197,25 +167,41 @@ export function discordApi(client:Client,projectRoot?:string,onMessage?:(message
   send:host((channelId,content,settings={},files=null)=>request.call('POST',`/channels/${snowflake(channelId,'Channel ID')}/messages`,textOptions(content,settings),null,null,files)),
   transcript:host(async(channelId,settings={})=>{
     const channel=snowflake(channelId,'Channel ID'),input=options(settings,'Transcript settings') as Record<string,Value>;
-    for(const key of Object.keys(input))if(!['format','limit','name','title'].includes(key))throw new WispError('DISCORD005',`Unknown transcript setting ${key}; use format, limit, name, or title`);
-    const format=input.format??'html',limit=input.limit??1000,title=input.title??'Transcript';
-    if(format!=='html'&&format!=='text')throw new WispError('DISCORD005','Transcript format must be "html" or "text"');
-    if(typeof limit!=='number'||!Number.isInteger(limit)||limit<1||limit>10000)throw new WispError('DISCORD005','Transcript limit must be a whole number from 1 to 10000');
-    if(typeof title!=='string'||title.length>200)throw new WispError('DISCORD005','Transcript title must be text of at most 200 characters');
-    const name=input.name??`transcript-${channel}.${format==='html'?'html':'txt'}`;
-    if(typeof name!=='string'||!/^[\w][\w .-]{0,99}$/.test(name))throw new WispError('DISCORD005','Transcript name must be 1 to 100 letters, digits, spaces, dots, dashes, or underscores');
-    const messages:RawMessage[]=[];let before:string|null=null;
-    while(messages.length<limit){
-      const size=Math.min(100,limit-messages.length);
-      const page=await request.call('GET',`/channels/${channel}/messages`,null,{limit:size,...(before?{before}:{})});
-      if(!Array.isArray(page)||!page.length)break;
-      messages.push(...page as RawMessage[]);
-      before=said((page[page.length-1] as RawMessage).id)||null;
-      if(page.length<size||!before)break;
+    for(const key of Object.keys(input))if(!transcriptKeys.includes(key))throw new WispError('DISCORD005',`Unknown transcript setting ${key}; use ${transcriptKeys.join(', ')}`);
+    return {...await buildTranscript(call,channel,transcriptSettings(input),fetchImage)};
+  }),
+  closeTicket:host(async(channelId,settings={})=>{
+    const channel=snowflake(channelId,'Channel ID'),input=options(settings,'Ticket settings') as Record<string,Value>;
+    const ticketKeys=['log','dm','delete','message','reason'];
+    for(const key of Object.keys(input))if(!ticketKeys.includes(key)&&!transcriptKeys.includes(key))throw new WispError('DISCORD005',`Unknown closeTicket setting ${key}; use ${[...ticketKeys,...transcriptKeys].join(', ')}`);
+    const log=input.log===undefined||input.log===null?null:snowflake(input.log,'Log channel ID');
+    const dm=input.dm===undefined||input.dm===null?null:snowflake(input.dm,'DM user ID');
+    const remove=input.delete??false,reason=input.reason??null;
+    if(typeof remove!=='boolean')throw new WispError('DISCORD005','closeTicket delete must be true or false');
+    if(reason!==null&&(typeof reason!=='string'||reason.length>512))throw new WispError('DISCORD005','closeTicket reason must be text of at most 512 characters');
+    if(input.message!==undefined&&(typeof input.message!=='string'||input.message.length>2000))throw new WispError('DISCORD005','closeTicket message must be text of at most 2000 characters');
+    const transcript=await buildTranscript(call,channel,transcriptSettings(Object.fromEntries(Object.entries(input).filter(([key])=>transcriptKeys.includes(key)))),fetchImage);
+    const content=typeof input.message==='string'?input.message:`Transcript of ${transcript.channel?`#${transcript.channel}`:'the ticket'} (${transcript.messages} messages)`;
+    const body={content,allowed_mentions:{parse:[]}},file=[{name:transcript.name,text:transcript.text}];
+    let logged=false,dmed=false,dmError:string|null=null;
+    if(log){
+      try{await request.call('POST',`/channels/${log}/messages`,body,null,null,file);logged=true;}
+      catch(error){throw new WispError('DISCORD005',`Couldn't post the transcript to the log channel, so the ticket was kept: ${error instanceof Error?error.message:String(error)}`);}
     }
-    messages.reverse();
-    const text=format==='html'?transcriptHtml(title,channel,messages):transcriptText(title,channel,messages);
-    return {name,text,format,messages:messages.length};
+    if(dm){
+      try{
+        const opened=await request.call('POST','/users/@me/channels',{recipient_id:dm});
+        const dmChannel=opened&&typeof opened==='object'&&!Array.isArray(opened)?(opened as Record<string,unknown>).id:null;
+        if(typeof dmChannel!=='string'||!snowflakePattern.test(dmChannel))throw new Error('Discord did not return a DM channel');
+        await request.call('POST',`/channels/${dmChannel}/messages`,body,null,null,file);dmed=true;
+      }catch(error){dmError=error instanceof Error?error.message:String(error);}
+    }
+    let deleted=false;
+    if(remove){
+      if(!logged&&!dmed)throw new WispError('DISCORD005',`Couldn't post the transcript anywhere, so the ticket was kept${dmError?` (DM failed: ${dmError})`:'; set "log" or "dm"'}`);
+      await request.call('DELETE',`/channels/${channel}`,null,null,reason);deleted=true;
+    }
+    return {name:transcript.name,messages:transcript.messages,channel:transcript.channel,logged,dmed,deleted,dm_error:dmError};
   }),
   editMessage:host((channelId,messageId,content,settings={},files=null)=>request.call('PATCH',`/channels/${snowflake(channelId,'Channel ID')}/messages/${snowflake(messageId,'Message ID')}`,textOptions(content,settings),null,null,files)),
   deleteMessage:host((channelId,messageId,reason=null)=>request.call('DELETE',`/channels/${snowflake(channelId,'Channel ID')}/messages/${snowflake(messageId,'Message ID')}`,null,null,reason)),
